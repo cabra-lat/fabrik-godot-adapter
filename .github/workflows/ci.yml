@@ -140,7 +140,7 @@ jobs:
             # ask the compiler where its own runtime lives rather than guessing a
             # path. The import table printed above is the source of truth for
             # which of these are actually needed.
-            for rt in libgfortran-5.dll libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll; do
+            for rt in libgfortran-5.dll libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll libquadmath-0.dll; do
               origin="$(gfortran -print-file-name=$rt 2>/dev/null || true)"
               if [ -f "$origin" ]; then
                 echo "  runtime $rt <- $origin"
@@ -161,6 +161,16 @@ jobs:
           mkdir -p demo/bin
           cp "$src" "demo/bin/$lib"
           ls -l demo/bin
+          # Windows does not reliably search the GDExtension's own directory for
+          # its transitive DLL dependencies. Put the complete runtime bundle on
+          # the child process PATH before launching Godot. This also covers
+          # dependencies such as libquadmath which are not listed in the
+          # adapter's direct import table.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH="$PWD/demo/bin:$PATH"
+            echo "Windows runtime PATH: $PATH"
+            objdump -p demo/bin/libgfortran-5.dll 2>/dev/null | grep -i "DLL Name" || true
+          fi
           # GNU timeout does not exist on macOS runners, so install coreutils for
           # gtimeout and keep the hang guard active everywhere. If neither binary
           # is available, run unguarded and say so out loud - a silently missing
