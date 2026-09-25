@@ -219,9 +219,16 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
         new_global[bone] = after;
         touched[bone] = true;
     }
+    // Report the chain root-first, matching the core's convention that
+    // joints[0] is the root and joints[count-1] is the tip. r_bones is
+    // leaf-first, so walking it backwards walks root-first; the solved array is
+    // already root-first, so its index runs the other way (count - 1 - i, the
+    // same solved_index the write loop uses). Appending solved[i] instead pairs
+    // a root bone with the tip position, and the test caught exactly that: a
+    // perfect solve reported as a tip sitting on the root.
     for (int32_t i = count - 1; i >= 0; --i) {
         last_bones.append(r_bones[i]);
-        last_solved_positions.append(solved[i]);
+        last_solved_positions.append(solved[count - 1 - i]);
     }
     return status;
 }
