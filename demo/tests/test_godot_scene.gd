@@ -87,17 +87,25 @@ func _check_smoothing() -> void:
 		failures += 1
 		print("FAIL smoothing froze the chain instead of easing it")
 		return
+	var after_twenty := previous
 	# After 20 eased steps the chain is legitimately still short of a single raw
 	# solve - that lag IS the feature. What must hold is that it keeps converging
 	# towards the same solution rather than settling somewhere else.
 	for i in 200:
 		eased.solve()
 	var settled: float = eased.joints[2].distance_to(eased.target)
-	if settled >= raw_reach:
+	# It converges to the SAME solution as the raw solve, but single-precision
+	# arithmetic leaves a residue around 1e-7, so compare with a float tolerance
+	# instead of demanding bit equality.
+	if settled - raw_reach > 1.0e-4:
 		failures += 1
 		print("FAIL smoothed solve never reached the raw solution (", settled, " vs ", raw_reach, ")")
 		return
-	print("PASS smoothing eases towards the target (monotone for 20 steps, then ", settled, " <= raw ", raw_reach, ")")
+	if settled >= after_twenty:
+		failures += 1
+		print("FAIL smoothed solve stopped improving (", settled, " vs after 20 steps ", after_twenty, ")")
+		return
+	print("PASS smoothing eases towards the target (monotone for 20 steps, then ", settled, " ~= raw ", raw_reach, ")")
 
 func _check_skeleton() -> void:
 	# pose_skeleton must actually write bone poses, and must reject bad input
