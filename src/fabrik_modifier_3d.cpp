@@ -335,6 +335,12 @@ int32_t FabrikModifier3D::solve_now() {
 }
 
 void FabrikModifier3D::_process_modification() {
+    // NEGATIVE CONTROL A: the engine callback deliberately solves nothing.
+    // The suite must fail; if it does not, the tests are not measuring the
+    // engine path. Throwaway branch, never merged.
+    if (true) {
+        return;
+    }
     if (solving) {
         return;
     }
