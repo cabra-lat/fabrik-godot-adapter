@@ -89,8 +89,9 @@ private:
     // cannot be built (unknown bone, a bone with no parent, or a chain too
     // short to bend).
     PackedInt32Array _build_bone_chain(const FabrikEffector *p_effector, Skeleton3D *p_skeleton) const;
-    // Fills `new_global` for one chain. Returns the core's status code.
-    int32_t _solve_chain(const FabrikEffector *p_effector, Skeleton3D *p_skeleton, const PackedInt32Array &r_bones);
+    // Fills `new_global` for one chain. Returns the core's status code and
+    // reports the chain's residual through `r_residual`.
+    int32_t _solve_chain(const FabrikEffector *p_effector, Skeleton3D *p_skeleton, const PackedInt32Array &r_bones, float &r_residual);
     void _ensure_capacity(int32_t p_bone_count);
     Transform3D _current_global(int32_t p_bone, Skeleton3D *p_skeleton) const;
     void _write_pose(int32_t p_bone, const Transform3D &p_global, Skeleton3D *p_skeleton);

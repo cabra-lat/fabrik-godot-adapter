@@ -93,8 +93,9 @@ void FabrikModifier3D::_write_pose(int32_t p_bone, const Transform3D &p_global, 
     p_skeleton->set_bone_pose(p_bone, _current_global(parent, p_skeleton).affine_inverse() * p_global);
 }
 
-int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleton3D *p_skeleton, const PackedInt32Array &r_bones) {
+int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleton3D *p_skeleton, const PackedInt32Array &r_bones, float &r_residual) {
     const int32_t count = r_bones.size();
+    r_residual = 0.0f;
     if (count < 2) {
         return -1; // A single bone cannot bend; the core would report it as such.
     }
@@ -139,7 +140,7 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
     chain->solve();
     const PackedVector3Array solved = chain->get_joints();
     const int32_t status = chain->get_last_status();
-    const float residual = chain->get_last_residual();
+    r_residual = chain->get_last_residual();
 
     for (int32_t i = 0; i < count; ++i) {
         const int32_t bone = r_bones[i];
@@ -213,7 +214,9 @@ int32_t FabrikModifier3D::solve_now() {
 
     const TypedArray<FabrikEffector> effectors = _collect_effectors();
     for (int32_t i = 0; i < effectors.size(); ++i) {
-        FabrikEffector *effector = effectors[i];
+        // TypedArray's operator[] hands back a Variant, and a bare Variant to
+        // pointer conversion is ambiguous - the cast is not optional.
+        FabrikEffector *effector = Object::cast_to<FabrikEffector>(effectors[i]);
         if (effector == nullptr) {
             continue;
         }
@@ -231,9 +234,13 @@ int32_t FabrikModifier3D::solve_now() {
                     String::num_int64(effector->get_bone_idx()) + ")";
             continue;
         }
-        const int32_t status = _solve_chain(effector, skeleton, bones);
+        float residual = 0.0f;
+        const int32_t status = _solve_chain(effector, skeleton, bones, residual);
         last_chain_count += 1;
         last_statuses.append(status);
+        if (residual > last_max_residual) {
+            last_max_residual = residual;
+        }
     }
 
     // A moving effector has to reach the mesh this frame, not next frame's.
