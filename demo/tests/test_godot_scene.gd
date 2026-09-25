@@ -71,23 +71,26 @@ func _check_smoothing() -> void:
 	eased.segment_lengths = PackedFloat32Array([1.0, 1.0])
 	eased.target = Vector3(2.0, 1.0, 0.0)
 	eased.smoothing = 0.8
-	var previous := 1.0e9
 	var moved := false
+	# The pose must keep changing (easing is not a freeze), but it is NOT
+	# required to approach the target monotonically: smoothing now slerps the
+	# orientations, so a chain can briefly swing away while it rotates into
+	# place. Asserting per-step monotonicity tested an accident of the old
+	# position-space lerp, not the contract.
+	var start_pose: Array = eased.joints
 	for i in 20:
 		eased.solve()
-		var gap: float = eased.joints[2].distance_to(eased.target)
-		if gap > previous:
+		if eased.joints[2].distance_to(eased.target) > raw_reach + 0.5:
 			failures += 1
-			print("FAIL smoothing moved away from the target at step ", i)
+			print("FAIL smoothing diverged: gap ", eased.joints[2].distance_to(eased.target))
 			return
-		if absf(gap - previous) > 0.0001:
+		if eased.joints[2].distance_to(start_pose[2]) > 0.0001:
 			moved = true
-		previous = gap
 	if not moved:
 		failures += 1
 		print("FAIL smoothing froze the chain instead of easing it")
 		return
-	var after_twenty := previous
+	var after_twenty: float = eased.joints[2].distance_to(eased.target)
 	# After 20 eased steps the chain is legitimately still short of a single raw
 	# solve - that lag IS the feature. What must hold is that it keeps converging
 	# towards the same solution rather than settling somewhere else.
@@ -105,7 +108,7 @@ func _check_smoothing() -> void:
 		failures += 1
 		print("FAIL smoothed solve stopped improving (", settled, " vs after 20 steps ", after_twenty, ")")
 		return
-	print("PASS smoothing eases towards the target (monotone for 20 steps, then ", settled, " ~= raw ", raw_reach, ")")
+	print("PASS smoothing eases towards the target and settles on the raw solution (", settled, " ~= raw ", raw_reach, ")")
 
 func _check_skeleton() -> void:
 	# pose_skeleton must actually write bone poses, and must reject bad input
