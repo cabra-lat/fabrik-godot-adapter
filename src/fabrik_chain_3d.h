@@ -27,7 +27,9 @@ class FabrikChain3D : public RefCounted {
     int32_t last_status = 0;
     float last_residual = 0.0f;
     // Godot has no PackedQuaternionArray, so rotations are a typed Array.
-    TypedArray<Quaternion> last_rotations;
+    // mutable because _update_rotations() is a const query: the cached result is
+    // derived state, and Array::resize/set are non-const in godot-cpp.
+    mutable TypedArray<Quaternion> last_rotations;
 
 public:
     void set_joints(const PackedVector3Array &p_joints);

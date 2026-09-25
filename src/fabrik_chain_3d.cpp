@@ -147,10 +147,12 @@ void FabrikChain3D::_update_rotations() const {
     for (int32_t i = 0; i < count; ++i) {
         const Vector3 up = directions[i];
         if (i > 0) {
-            // Minimal rotation from the previous bone direction to this one.
-            const Quaternion step = directions[i - 1].rotation_difference(up);
+            // Shortest-arc rotation from the previous bone direction to this
+            // one. godot-cpp 4.4 has Quaternion(from, to) and Quaternion::xform;
+            // there is no Vector3::rotation_difference and no Quaternion*Vector3.
+            const Quaternion step(directions[i - 1], up);
             frame = step * frame;
-            side = step * side;
+            side = step.xform(side);
         }
         // Re-orthogonalise against drift accumulated by the transport.
         side = (side - up * side.dot(up));
@@ -167,7 +169,7 @@ void FabrikChain3D::_update_rotations() const {
     }
 }
 
-PackedQuaternionArray FabrikChain3D::get_joint_rotations() const {
+TypedArray<Quaternion> FabrikChain3D::get_joint_rotations() const {
     TypedArray<Quaternion> rotations;
     if (joints.size() < 2) {
         return rotations;
