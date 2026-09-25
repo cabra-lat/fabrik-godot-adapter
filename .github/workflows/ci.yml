@@ -17,14 +17,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       FABRIK_CORE_REPOSITORY: cabra-lat/fabrik-fortran
-      FABRIK_CORE_REF: 87601abe0240da305ce3d56cd4fc8022ae829385
+      FABRIK_CORE_REF: 6745c0b525a3dc05e8a35e7150993308d574331c
     steps:
       - uses: actions/checkout@v4
       - name: Check out standalone core
         uses: actions/checkout@v4
         with:
           repository: cabra-lat/fabrik-fortran
-          ref: 87601abe0240da305ce3d56cd4fc8022ae829385
+          ref: 6745c0b525a3dc05e8a35e7150993308d574331c
           path: core
       - uses: fortran-lang/setup-fortran@v1
         with:
@@ -39,7 +39,7 @@ jobs:
           fpm test --profile release
           fpm build --profile release
       - name: Assemble core install prefix
-        run: python ci/collect_fpm_prefix.py --build core/build --prefix "$RUNNER_TEMP/fabrik-core"
+        run: python ci/collect_fpm_prefix.py --build core/build --prefix core-prefix
       - name: Check out pinned godot-cpp
         uses: actions/checkout@v4
         with:
@@ -50,8 +50,8 @@ jobs:
         shell: bash
         run: >
           cmake -S . -B build -G Ninja
-          -DFABRIK_CORE_ROOT="$RUNNER_TEMP/fabrik-core"
-          -DGODOT_CPP_SOURCE_DIR="$GITHUB_WORKSPACE/godot-cpp"
+          -DFABRIK_CORE_ROOT=core-prefix
+          -DGODOT_CPP_SOURCE_DIR=godot-cpp
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=g++
       - name: Build adapter and C ABI smoke test

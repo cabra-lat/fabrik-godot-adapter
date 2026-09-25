@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
 
     fabrik-core = {
-      url = "github:cabra-lat/fabrik-fortran/87601abe0240da305ce3d56cd4fc8022ae829385";
+      url = "github:cabra-lat/fabrik-fortran/6745c0b525a3dc05e8a35e7150993308d574331c";
       flake = true;
     };
 

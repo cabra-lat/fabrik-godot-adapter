@@ -5,17 +5,17 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1790349221,
-        "narHash": "sha256-ARy4bmXZ50BlvcbORJmw4bF5JHn4GTcFqKvC8oPD+Gg=",
+        "lastModified": 1790349748,
+        "narHash": "sha256-A2BB0m5WmwmBznz1kb9Oq+jwWc64zZBdLF1XDlvC+ps=",
         "owner": "cabra-lat",
         "repo": "fabrik-fortran",
-        "rev": "87601abe0240da305ce3d56cd4fc8022ae829385",
+        "rev": "6745c0b525a3dc05e8a35e7150993308d574331c",
         "type": "github"
       },
       "original": {
         "owner": "cabra-lat",
         "repo": "fabrik-fortran",
-        "rev": "87601abe0240da305ce3d56cd4fc8022ae829385",
+        "rev": "6745c0b525a3dc05e8a35e7150993308d574331c",
         "type": "github"
       }
     },
