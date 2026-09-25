@@ -91,9 +91,27 @@ estimate that skips them is not an estimate.
 
 If the live solver's frame time is the problem, then FABRIK's constant factors
 matter, and the thing to measure is per-solve cost for a 3-bone chain — not
-features, and not this document. That measurement is cheap and nobody has taken
-it. If it showed a decisive win, the parity harness in step 3 would become worth
-building.
+features, and not this document.
+
+That measurement was **asked for and declined**, which is a decision rather than
+an oversight: no decision is currently waiting on it. The live solver is
+integrated, pinned and green in CI, and FABRIK has already been evaluated and
+declined as a production replacement, so a number with nothing downstream of it
+is not worth a run. The triggers that reverse the decision, recorded so the
+question does not have to be re-argued from scratch:
+
+1. If performance work ever implicates per-frame IK rather than, say, the
+   inventory grid scan, a 3-bone chain cost stops being trivia.
+2. If anyone proposes FABRIK again on performance grounds — which is plausible,
+   since it is faster in principle — a measured baseline for the current
+   implementation is what makes that conversation decidable rather than
+   assertion-driven.
+3. If the low-end hardware this project is tested on turns out to be CPU-bound
+   during a raid rather than GPU-bound, per-solve cost is among the first things
+   that matters.
+
+None of the three is true today. If one becomes true, the measurement is cheap
+and the parity harness in step 3 becomes worth building.
 
 Absent that number, the honest position is the one recorded above: **the
 replacement is not justified, and this document is the reason.** The prototype is

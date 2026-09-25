@@ -182,6 +182,31 @@ hand.global_position = target_position
   and a test or a manual pipeline can drive it directly.
 - The effector bone's index is re-resolved from `bone_name` on every solve, so a
   bone renamed or added at runtime is picked up without a signal.
+- `get_last_bones()` and `get_last_solved_positions()` report the chain the last
+  solve actually produced, **root-first** (matching the core's convention that
+  `joints[0]` is the root and `joints[count-1]` is the tip).
+
+### Read this before writing a test against the modifier
+
+A modifier's `set_bone_pose()` is **not readable back** through
+`get_bone_pose()` / `get_bone_global_pose()` once the engine's skeleton update
+returns. The engine resets bone poses to the base pose, runs the modifiers, and
+then rebuilds the pose cache. This is measured, not assumed: a pose write made
+from *outside* the modifier callback does persist, and the identical write made
+from *inside* `_process_modification()` is gone by the time the frame ends.
+
+Two consequences, both of which have already cost a test suite a wrong answer:
+
+- A test of engine-driven solving must assert that the modifier was called and
+  inspect the solve it reported (`get_last_chain_count()`,
+  `get_last_bones()`, `get_last_solved_positions()`). Asserting on
+  `Skeleton3D` state after `await process_frame` will always fail, on a
+  modifier that works perfectly.
+- A test of *manual* solving can and should assert on bone poses directly, which
+  is why `solve_now()` calls `force_update_all_bone_transforms()` — but that call
+  is skipped when the solve came from the engine, because forcing a transform
+  update from inside the engine's own modifier callback re-enters the update in
+  progress and crashes.
 
 ### Transform modes
 
