@@ -155,8 +155,10 @@ the full text.
   Kinematics problem*, Graphical Models 73(5), 2011, pp. 243-260,
   <https://doi.org/10.1016/j.gmod.2011.05.003>.
 
-The core repository (`cabra-lat/fabrik-fortran`, `docs/ALGORITHM.md`) carries the
-wider reference list, including the closed-loop and convergence literature.
+The core repository carries the wider reference list, including the closed-loop
+and convergence literature:
+<https://github.com/cabra-lat/fabrik-fortran/blob/13253a77b78b515b89d2531dd93aa6934e80b523/docs/ALGORITHM.md>
+(commit pinned by `.github/workflows/ci.yml` as `FABRIK_CORE_REF`).
 
 ## Smoothing
 

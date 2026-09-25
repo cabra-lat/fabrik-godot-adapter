@@ -16,8 +16,9 @@ either. Please do not add game scenes, gameplay code or CI gates here.
   checkout, and the extension library is always built by CI or by hand.
 - Keep the demo Godot project inside `demo/`. A `project.godot` at the repository
   root makes the engine scan `build/`, `core/` and `godot-cpp/`.
-- Attribute the algorithm; never copy it. See the provenance section of the core
-  repository's `docs/LICENSE_REVIEW.md`.
+- Attribute the algorithm; never copy it. See the provenance section of the
+  core repository's licence review:
+  <https://github.com/cabra-lat/fabrik-fortran/blob/13253a77b78b515b89d2531dd93aa6934e80b523/docs/LICENSE_REVIEW.md>
 
 ## Before you open a pull request
 
