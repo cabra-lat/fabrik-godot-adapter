@@ -55,6 +55,16 @@ class FabrikModifier3D : public SkeletonModifier3D {
     // target outside the reach sphere leaves the tip short on purpose.
     float last_max_residual = 0.0f;
     String last_error;
+    // True while the engine is inside _process_modification(). Forcing a bone
+    // transform update from there re-enters the skeleton update that is already
+    // running, and that crashes: switching this call from
+    // force_update_bone_child_transform() to force_update_all_bone_transforms()
+    // turned a working engine-driven path into a segfault, with the backtrace
+    // showing a recursive _solve_chain under the engine's own update frames.
+    bool in_modifier_callback = false;
+    // Re-entrancy guard: the engine's update and solve_now() are the same code
+    // path, so a nested call must not solve twice.
+    bool solving = false;
 
     // Per-bone working set, indexed by bone index. `touched` marks bones this
     // solve moved, so a parent that another chain already moved is picked up

@@ -250,18 +250,22 @@ void FabrikModifier3D::_write_chain(const PackedInt32Array &r_bones, FabrikEffec
 }
 
 int32_t FabrikModifier3D::solve_now() {
+    if (solving) {
+        return -1; // Already solving; the engine's update and this are one path.
+    }
+    Skeleton3D *skeleton = Object::cast_to<Skeleton3D>(get_skeleton());
+    if (skeleton == nullptr) {
+        last_error = "no Skeleton3D above the modifier";
+        last_chain_count = 0;
+        return -1;
+    }
+    solving = true;
     last_statuses.clear();
     last_bones.clear();
     last_solved_positions.clear();
     last_error = String();
     last_chain_count = 0;
     last_max_residual = 0.0f;
-
-    Skeleton3D *skeleton = Object::cast_to<Skeleton3D>(get_skeleton());
-    if (skeleton == nullptr) {
-        last_error = "no Skeleton3D above the modifier";
-        return -1;
-    }
     _ensure_capacity(skeleton->get_bone_count());
     for (int32_t i = 0; i < skeleton->get_bone_count(); ++i) {
         touched[i] = false;
@@ -309,13 +313,23 @@ int32_t FabrikModifier3D::solve_now() {
         _write_chain(pending_bones[i], pending_modes[i], skeleton);
     }
 
-    // A moving effector has to reach the mesh this frame, not next frame's.
-    skeleton->force_update_all_bone_transforms();
+    // A manual solve has to reach the mesh now, because nothing else will run
+    // this frame. A solve from inside the engine's own modifier callback must
+    // NOT: forcing a transform update there re-enters the update in progress.
+    if (!in_modifier_callback) {
+        skeleton->force_update_all_bone_transforms();
+    }
+    solving = false;
     return last_chain_count;
 }
 
 void FabrikModifier3D::_process_modification() {
+    if (solving) {
+        return;
+    }
+    in_modifier_callback = true;
     solve_now();
+    in_modifier_callback = false;
 }
 
 int32_t FabrikModifier3D::get_last_chain_count() const {
