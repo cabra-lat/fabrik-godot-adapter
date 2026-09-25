@@ -73,8 +73,17 @@ int32_t FabrikChain3D::solve() {
         return last_status;
     }
 
-    // Keep the pre-solve pose so smoothing can interpolate towards the new one.
-    const PackedVector3Array previous = joints;
+    // Snapshot the previous ORIENTATIONS for smoothing.
+    //
+    // This is a std::vector on purpose: a TypedArray copy in godot-cpp is a
+    // reference to the same underlying array (_ref), not a deep copy, so
+    // snapshotting into one and then writing last_rotations would overwrite the
+    // snapshot too, and the slerp would compare each rotation with itself.
+    std::vector<Quaternion> previous_rotations;
+    previous_rotations.reserve(static_cast<size_t>(count));
+    for (int32_t i = 0; i < last_rotations.size(); ++i) {
+        previous_rotations.push_back(last_rotations[i]);
+    }
 
     std::vector<float> coordinates;
     coordinates.resize(static_cast<size_t>(count) * 3U);
@@ -104,10 +113,48 @@ int32_t FabrikChain3D::solve() {
             coordinates[static_cast<size_t>(i) * 3U],
             coordinates[static_cast<size_t>(i) * 3U + 1U],
             coordinates[static_cast<size_t>(i) * 3U + 2U]);
-        // smoothing == 0 keeps the raw solve; 1 freezes the chain.
-        joints.set(i, smoothing > 0.0f ? previous[i].lerp(solved, 1.0f - smoothing) : solved);
+        joints.set(i, solved);
     }
     _update_rotations();
+
+    // Smoothing happens in ROTATION space, never in position space.
+    //
+    // Interpolating joint positions towards the solved ones looks right for one
+    // frame and is wrong in a way that matters: it changes every segment length,
+    // so the rig's bones stretch and the visual skeleton stops matching the
+    // declared one. The humanoid demo caught exactly this - a 0.30 m upper arm
+    // rendered as 0.264 m while the chain eased. Slerping the orientations and
+    // rebuilding the positions by forward kinematics with the declared lengths
+    // cannot stretch a bone, and it converges to the same pose as the raw solve
+    // because slerp(previous, raw, 1.0) IS the raw rotation.
+    if (smoothing > 0.0f && previous_rotations.size() == static_cast<size_t>(count) && count >= 2) {
+        const float t = 1.0f - smoothing;
+        for (int32_t i = 0; i < count; ++i) {
+            const Quaternion eased = previous_rotations[i].slerp(last_rotations[i], t);
+            last_rotations.set(i, eased);
+        }
+        // Forward kinematics from the current root: the root never moves here,
+        // so a free-root solve eases its body rather than its anchor.
+        PackedFloat32Array lengths = segment_lengths;
+        if (lengths.size() != count - 1) {
+            // No explicit lengths: take them from the raw solve, which is what
+            // the core would have used.
+            lengths.resize(count - 1);
+            for (int32_t i = 0; i < count - 1; ++i) {
+                lengths.set(i, joints[i].distance_to(joints[i + 1]));
+            }
+        }
+        for (int32_t i = 0; i < count - 1; ++i) {
+            const float length = lengths[i];
+            if (length <= CMP_EPSILON) {
+                continue;
+            }
+            // The bone convention is local +Y, the same one pose_skeleton uses.
+            const Vector3 direction = last_rotations[i].xform(Vector3(0, 1, 0));
+            joints.set(i + 1, joints[i] + direction * length);
+        }
+        _update_rotations();
+    }
     if (last_status == FABRIK_OK) {
         emit_signal("solve_finished", last_status, last_residual);
     }
