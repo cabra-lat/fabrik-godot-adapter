@@ -122,7 +122,7 @@ func _smoothing_stretches_nothing(demo: Node) -> void:
 			var actual := joints[s].distance_to(joints[s + 1])
 			var expected: float = chain.segment_lengths[s]
 			if absf(actual - expected) > 0.002:
-				_fail("smoothing stretched ", limb.label, " segment ", s, ": ", actual, " vs ", expected)
+				_fail("smoothing stretched " + limb.label + " segment " + str(s) + ": " + str(actual) + " vs " + str(expected))
 				return
 		first = joints[0].distance_to(chain.target)
 		last = joints[joints.size() - 1].distance_to(chain.target)
@@ -130,14 +130,14 @@ func _smoothing_stretches_nothing(demo: Node) -> void:
 		_fail("smoothing run produced a degenerate pose")
 		return
 	if last >= first:
-		_fail("smoothing did not converge towards the out-of-reach target: ", first, " -> ", last)
+		_fail("smoothing did not converge towards the out-of-reach target: " + str(first) + " -> " + str(last))
 		return
 	# Converged: the tip is now at the chain's reach, pointing at the target.
 	var reach := 0.0
 	for length in chain.segment_lengths:
 		reach += length
 	if absf(last - (chain.joints[0].distance_to(chain.target) - reach)) > 0.01:
-		_fail("smoothed chain did not settle fully extended: tip gap ", last)
+		_fail("smoothed chain did not settle fully extended: tip gap " + str(last))
 		return
 	print("PASS smoothing eases a chain without stretching any bone, and settles fully extended")
 
