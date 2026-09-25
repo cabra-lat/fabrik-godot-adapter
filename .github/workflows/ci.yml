@@ -92,21 +92,24 @@ jobs:
           echo "runner: $RUNNER_OS"
           case "$RUNNER_OS" in
             Linux)
-              lib="libfabrik_adapter.so"
+              ext="so"
+          lib="libfabrik_adapter.so"
               url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip"
               url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip"
               bin_441="Godot_v4.4.1-stable_linux.x86_64"
               bin_471="Godot_v4.7.1-stable_linux.x86_64"
               ;;
             macOS)
-              lib="libfabrik_adapter.dylib"
+              ext="dylib"
+          lib="libfabrik_adapter.dylib"
               url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_macos.universal.zip"
               url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_macos.universal.zip"
               bin_441="Godot.app/Contents/MacOS/Godot"
               bin_471="Godot.app/Contents/MacOS/Godot"
               ;;
             Windows)
-              lib="fabrik_adapter.dll"
+              ext="dll"
+          lib="fabrik_adapter.dll"
               url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_win64.exe.zip"
               url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_win64.exe.zip"
               bin_441="Godot_v4.4.1-stable_win64.exe"
@@ -119,6 +122,11 @@ jobs:
           echo "--- build/bin:"
           ls -l build/bin 2>&1 || true
           src="$(find build -name "$lib" -type f | head -1)"
+          if [ -z "$src" ]; then
+            # Toolchains differ on the shared-library prefix; fall back to a
+            # pattern so a naming difference is not reported as a missing build.
+            src="$(find build -name "*fabrik_adapter*.$ext" -type f | head -1)"
+          fi
           if [ -z "$src" ]; then
             echo "could not find $lib under build/; candidates:"
             find build -name "*.dll" -o -name "*.so" -o -name "*.dylib" | head -20

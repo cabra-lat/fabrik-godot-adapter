@@ -74,12 +74,19 @@ enable_testing()
 add_test(NAME fabrik_cxx_smoke COMMAND fabrik_cxx_smoke)
 
 set_target_properties(fabrik_adapter PROPERTIES
-  PREFIX "lib"
   OUTPUT_NAME "fabrik_adapter"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
+# The "lib" prefix is a Unix convention. MSVC strips it from DLLs, but MinGW
+# keeps it, so forcing it unconditionally produced libfabrik_adapter.dll on
+# Windows while the .gdextension descriptor asks for fabrik_adapter.dll. Set it
+# only where it belongs and let each platform produce the name the descriptor
+# already expects.
+if(NOT WIN32)
+  set_target_properties(fabrik_adapter PROPERTIES PREFIX "lib")
+endif()
 # A Windows DLL is a RUNTIME artifact, not a LIBRARY one, so without
 # RUNTIME_OUTPUT_DIRECTORY it lands in the build root - and multi-config
 # generators append the configuration, e.g. build/Debug/. Set the per-config
