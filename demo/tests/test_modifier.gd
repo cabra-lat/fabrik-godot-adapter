@@ -226,9 +226,12 @@ func _segment_lengths_survive() -> void:
 	var root_now := skeleton.get_bone_global_pose(CHAIN_ROOT).origin
 	if not root_now.is_equal_approx(root_before):
 		_fail("the chain root moved from " + str(root_before) + " to " + str(root_now))
+	var drifted := -1
 	for i in 2:
 		if absf(before[i] - after[i]) > 0.001:
-			_fail("segment " + str(i) + " length drifted: " + str(before[i]) + " -> " + str(after[i]))
+			drifted = i
+	if drifted >= 0:
+		_fail("segment " + str(drifted) + " length drifted: " + str(before[drifted]) + " -> " + str(after[drifted]))
 	elif modifier.get_last_statuses() != PackedInt32Array([0]):
 		_fail("expected every chain to report OK, got " + str(modifier.get_last_statuses()))
 	else:
