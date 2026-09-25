@@ -2,6 +2,7 @@
 
 #include "fabrik_core.h"
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/math.hpp>
 #include <godot_cpp/variant/basis.hpp>
 
 #include <cmath>
@@ -132,6 +133,17 @@ int32_t FabrikChain3D::solve() {
     if (last_status != FABRIK_INVALID_ARGUMENT && last_status != FABRIK_DEGENERATE_CHAIN) {
         _apply_pole_constraint();
     }
+    // Angle limits run after the pole hint. A pole target is a rigid rotation
+    // about the root-to-tip axis, so it cannot change any interior angle; the two
+    // constraints therefore do not fight, and running limits last means the
+    // reported residual belongs to the pose that was actually kept.
+    if (last_status != FABRIK_INVALID_ARGUMENT && last_status != FABRIK_DEGENERATE_CHAIN) {
+        _apply_joint_limits();
+        // The core measured the residual of the raw solve, before the pole and
+        // limit projections moved joints. Re-measure it, or a limited chain
+        // would report "solved" while visibly missing its target.
+        _recompute_residual();
+    }
     _update_rotations();
 
     // Smoothing happens in ROTATION space, never in position space.
@@ -178,6 +190,168 @@ int32_t FabrikChain3D::solve() {
         emit_signal("solve_finished", last_status, last_residual);
     }
     return last_status;
+}
+
+void FabrikChain3D::set_joint_limits(const PackedVector2Array &p_limits) {
+    joint_limits = p_limits;
+}
+
+PackedVector2Array FabrikChain3D::get_joint_limits() const {
+    return joint_limits;
+}
+
+void FabrikChain3D::clear_joint_limits() {
+    joint_limits = PackedVector2Array();
+}
+
+void FabrikChain3D::set_limit_iterations(int32_t p_iterations) {
+    limit_iterations = MAX(1, p_iterations);
+}
+
+int32_t FabrikChain3D::get_limit_iterations() const {
+    return limit_iterations;
+}
+
+PackedFloat32Array FabrikChain3D::get_joint_angles() const {
+    const int32_t count = joints.size();
+    PackedFloat32Array angles;
+    angles.resize(count);
+    // The ends have no interior angle, so they report 0 rather than a
+    // meaningless 180 that a caller would have to special-case.
+    for (int32_t i = 0; i < count; ++i) {
+        angles.set(i, _interior_angle_degrees(i));
+    }
+    return angles;
+}
+
+int32_t FabrikChain3D::get_limit_projection_count() const {
+    return last_limit_projections;
+}
+
+int32_t FabrikChain3D::get_limit_violation_count() const {
+    return last_limit_violations;
+}
+
+float FabrikChain3D::_interior_angle_degrees(int32_t p_index) const {
+    const int32_t count = joints.size();
+    if (p_index < 1 || p_index > count - 2) {
+        return 0.0f;
+    }
+    const Vector3 incoming = (joints[p_index] - joints[p_index - 1]);
+    const Vector3 outgoing = (joints[p_index + 1] - joints[p_index]);
+    if (incoming.length_squared() <= CMP_EPSILON || outgoing.length_squared() <= CMP_EPSILON) {
+        return 0.0f;
+    }
+    const float cosine = CLAMP(incoming.normalized().dot(outgoing.normalized()), -1.0f, 1.0f);
+    return Math::rad_to_deg(Math::acos(cosine));
+}
+
+Vector3 FabrikChain3D::_perpendicular_to(const Vector3 &p_direction) const {
+    // Cross with the least aligned basis axis: the result is then as long as
+    // possible, and it is a pure function of the direction, so two runs of the
+    // same input bend the same way.
+    const Vector3 basis = (Math::abs(p_direction.x) <= Math::abs(p_direction.y) &&
+                                  Math::abs(p_direction.x) <= Math::abs(p_direction.z))
+            ? Vector3(1, 0, 0)
+            : (Math::abs(p_direction.y) <= Math::abs(p_direction.z) ? Vector3(0, 1, 0) : Vector3(0, 0, 1));
+    Vector3 result = basis.cross(p_direction);
+    const float length = result.length();
+    if (length <= CMP_EPSILON) {
+        return Vector3(0, 0, 1);
+    }
+    return result / length;
+}
+
+void FabrikChain3D::_apply_joint_limits() {
+    last_limit_projections = 0;
+    last_limit_violations = 0;
+    const int32_t count = joints.size();
+    if (joint_limits.is_empty() || count < 3) {
+        return;
+    }
+    const int32_t passes = MAX(1, limit_iterations);
+    for (int32_t pass = 0; pass < passes; ++pass) {
+        bool projected = false;
+        for (int32_t i = 1; i < count - 1; ++i) {
+            // A shorter limit array leaves the remaining joints unlimited.
+            if (i >= joint_limits.size()) {
+                break;
+            }
+            const Vector2 limit = joint_limits[i];
+            if (limit.x >= limit.y) {
+                continue;
+            }
+            const float minimum = CLAMP(limit.x, 0.0f, 180.0f);
+            const float maximum = CLAMP(limit.y, 0.0f, 180.0f);
+            const float theta = _interior_angle_degrees(i);
+            const float clamped = CLAMP(theta, minimum, maximum);
+            if (Math::abs(clamped - theta) <= 0.01f) {
+                continue;
+            }
+            const Vector3 pivot = joints[i];
+            const Vector3 incoming = (pivot - joints[i - 1]);
+            const Vector3 outgoing = (joints[i + 1] - pivot);
+            if (incoming.length_squared() <= CMP_EPSILON || outgoing.length_squared() <= CMP_EPSILON) {
+                continue;
+            }
+            const Vector3 in_dir = incoming.normalized();
+            const Vector3 out_dir = outgoing.normalized();
+
+            // The side of the chain the bend currently lies on decides which way
+            // the corrected chain folds. A perfectly straight or perfectly folded
+            // joint has no such side, so pick a stable perpendicular instead -
+            // without it, a straight chain could never be given any maximum below
+            // 180 degrees.
+            Vector3 side = out_dir - in_dir * out_dir.dot(in_dir);
+            if (side.length_squared() <= CMP_EPSILON) {
+                side = _perpendicular_to(in_dir);
+            } else {
+                side = side.normalized();
+            }
+            const float radians = Math::deg_to_rad(clamped);
+            const Vector3 desired =
+                (in_dir * Math::cos(radians) + side * Math::sin(radians)).normalized();
+            // Rotating the sub-chain BELOW the joint, rather than the one above,
+            // keeps joints[0]..joints[i] - and therefore an anchored root - exactly
+            // where they were, and keeps every segment length, because the whole
+            // sub-chain moves rigidly. The tip is what gives way.
+            const Quaternion correction(out_dir, desired);
+            for (int32_t j = i + 1; j < count; ++j) {
+                joints.set(j, pivot + correction.xform(joints[j] - pivot));
+            }
+            last_limit_projections += 1;
+            projected = true;
+        }
+        if (!projected) {
+            break;
+        }
+    }
+
+    // Report what the bounded relaxation could not satisfy instead of implying
+    // the limits always hold.
+    for (int32_t i = 1; i < count - 1; ++i) {
+        if (i >= joint_limits.size()) {
+            break;
+        }
+        const Vector2 limit = joint_limits[i];
+        if (limit.x >= limit.y) {
+            continue;
+        }
+        const float theta = _interior_angle_degrees(i);
+        if (theta < CLAMP(limit.x, 0.0f, 180.0f) - 0.01f ||
+                theta > CLAMP(limit.y, 0.0f, 180.0f) + 0.01f) {
+            last_limit_violations += 1;
+        }
+    }
+}
+
+void FabrikChain3D::_recompute_residual() {
+    const int32_t count = joints.size();
+    if (count < 2) {
+        last_residual = 0.0f;
+        return;
+    }
+    last_residual = joints[count - 1].distance_to(target);
 }
 
 void FabrikChain3D::_apply_pole_constraint() {
@@ -355,6 +529,14 @@ void FabrikChain3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_max_iterations"), &FabrikChain3D::get_max_iterations);
     ClassDB::bind_method(D_METHOD("set_smoothing", "smoothing"), &FabrikChain3D::set_smoothing);
     ClassDB::bind_method(D_METHOD("get_smoothing"), &FabrikChain3D::get_smoothing);
+    ClassDB::bind_method(D_METHOD("set_joint_limits", "limits"), &FabrikChain3D::set_joint_limits);
+    ClassDB::bind_method(D_METHOD("get_joint_limits"), &FabrikChain3D::get_joint_limits);
+    ClassDB::bind_method(D_METHOD("clear_joint_limits"), &FabrikChain3D::clear_joint_limits);
+    ClassDB::bind_method(D_METHOD("set_limit_iterations", "iterations"), &FabrikChain3D::set_limit_iterations);
+    ClassDB::bind_method(D_METHOD("get_limit_iterations"), &FabrikChain3D::get_limit_iterations);
+    ClassDB::bind_method(D_METHOD("get_joint_angles"), &FabrikChain3D::get_joint_angles);
+    ClassDB::bind_method(D_METHOD("get_limit_projection_count"), &FabrikChain3D::get_limit_projection_count);
+    ClassDB::bind_method(D_METHOD("get_limit_violation_count"), &FabrikChain3D::get_limit_violation_count);
     ClassDB::bind_method(D_METHOD("solve"), &FabrikChain3D::solve);
     ClassDB::bind_method(D_METHOD("get_last_status"), &FabrikChain3D::get_last_status);
     ClassDB::bind_method(D_METHOD("get_last_residual"), &FabrikChain3D::get_last_residual);

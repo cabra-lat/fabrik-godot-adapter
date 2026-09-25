@@ -138,6 +138,14 @@ success and unreachable statuses.
 - Stress measurements on the tested host: anchored root drift is exactly zero
   through 4096-joint chains, segment-length error stays below `2e-5` m at that
   size, and a 100,000-joint solve takes about 44 ms.
+- `joint_limits` adds per-joint angle limits, given as the interior angle in
+  degrees (`180` straight, `0` folded). FABRIK itself has no notion of them: the
+  adapter projects them after the solve by rotating the sub-chain below the
+  joint, which keeps an anchored root fixed and every segment length exact, and
+  lets the tip fall short of the target instead.
+  `get_limit_violation_count()` reports any joint the bounded relaxation could
+  not satisfy, so a limit is never silently dropped. See
+  [`docs/API.md`](docs/API.md).
 - `FabrikRig3D` owns an ordered list of chains and solves them as one unit:
   declaration order is the default, `add_dependency(child, parent)` overrides
   it, and `set_target_provider(chain, callable)` derives a target from a chain

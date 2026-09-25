@@ -58,6 +58,40 @@ the position solve. Because that is a rigid rotation about a fixed axis, the
 root and tip stay put and every declared segment length is preserved. A zero
 pole target disables the constraint.
 
+## Joint angle limits
+
+FABRIK constrains segment lengths only, so on its own it will straighten a knee
+backwards or fold an elbow past its flexion limit. Limits are a post-solve
+projection, given per joint as the **interior** angle in degrees — `180` is
+straight, `0` is folded back on itself:
+
+```gdscript
+chain.joint_limits = PackedVector2Array([
+    Vector2(0, 0),      # joint 0: the root has no interior angle
+    Vector2(0, 60),     # this joint may fold to 60 degrees, never straighter
+    Vector2(0, 0),      # joint 2: the tip, likewise
+])
+```
+
+- `get_joint_angles()` returns the measured interior angle per joint in degrees
+  (the two ends report `0`).
+- A limit is enforced by rotating the sub-chain **below** the joint. That keeps
+  an anchored root exactly where it is and preserves every segment length,
+  because the sub-chain moves rigidly; the tip is what gives way. A limit
+  therefore makes the target genuinely unreachable, and `get_last_residual()`
+  reports the shortfall instead of claiming a clean solve.
+- Fixing one joint can move the next, so the projection runs up to
+  `set_limit_iterations()` passes (default 4).
+- `get_limit_projection_count()` counts the projections of the last solve;
+  `get_limit_violation_count()` counts joints still outside their range
+  afterwards. `0` violations is the healthy case — a non-zero value means the
+  limits and the pose could not both hold, which is reported rather than
+  hidden.
+- A shorter `joint_limits` array leaves the remaining joints unlimited, and a
+  `Vector2(0, 180)` entry is unlimited too.
+- Limits act on positions, so they are applied before the rotation-space
+  smoothing pass and are not themselves eased.
+
 ## Solving a whole rig in order (`FabrikRig3D`)
 
 A body is not a set of independent chains: a hand or a prop target usually lives
@@ -101,6 +135,15 @@ leave a stale index behind; removing a chain also drops its edges.
 What this is **not**: a closed-loop solver. Chains are still solved one at a
 time and no constraint is projected across chains — a cycle is reported, not
 relaxed. Collision and scene-tree ownership are out of scope too.
+
+## References
+
+- R. Aristidou, N. Chr. Chrysanthou, J. Lasenby, *Extending FABRIK with model
+  constraints*, Journal of Computer Animation Technology 1(1), 2011 — the
+  original treatment of joint and model constraints on top of FABRIK.
+- A. Aristidou, J. Lasenby, *FABRIK: A fast, iterative solver for the Inverse
+  Kinematics problem*, IEEE Transactions on Visualization and Computer Graphics
+  17(5), 2011.
 
 ## Smoothing
 

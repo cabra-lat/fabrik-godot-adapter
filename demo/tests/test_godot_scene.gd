@@ -377,6 +377,148 @@ func _check_rig_ordering() -> void:
 		return
 	print("PASS rig solves in dependency order and feeds a child its parent's solved tip")
 
+func _check_joint_limits() -> void:
+	# A real elbow may not hyperextend, and may not fold past its flexion limit.
+	# FABRIK has no notion of either: it will happily straighten a backwards
+	# elbow, because only segment lengths constrain it. So the limit is a
+	# post-solve projection, and the contract is what must hold afterwards -
+	# angle inside the range, lengths untouched, root untouched, and a residual
+	# that admits the tip no longer reaches the target.
+	var limited := FabrikChain3D.new()
+	limited.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	limited.segment_lengths = PackedFloat32Array([1.0, 1.0])
+	limited.target = Vector3(1.6, 0.6, 0.0)
+	# (0, 0) at joint 0 is unused, (0, 60) at joint 1 forbids straightening
+	# past 60 degrees, joint 2 is the tip and has no interior angle.
+	limited.joint_limits = PackedVector2Array([Vector2(0, 0), Vector2(0, 60), Vector2(0, 0)])
+	var status: int = limited.solve()
+	if status != 0:
+		failures += 1
+		print("FAIL limited solve status=", status, " ", limited.get_last_status_name())
+		return
+	var angles: PackedFloat32Array = limited.get_joint_angles()
+	if angles[1] > 60.05:
+		failures += 1
+		print("FAIL elbow bent to ", angles[1], " degrees with a 60 degree maximum")
+		return
+	if angles[1] < -0.01:
+		failures += 1
+		print("FAIL elbow angle went negative: ", angles[1])
+		return
+	if limited.get_limit_projection_count() == 0:
+		failures += 1
+		print("FAIL a violated limit reported no projection at all")
+		return
+	if limited.get_limit_violation_count() != 0:
+		failures += 1
+		print("FAIL a single-joint limit left ", limited.get_limit_violation_count(), " violation(s)")
+		return
+	# The limit makes the target unreachable, and the chain has to say so instead
+	# of claiming a clean solve.
+	if limited.get_last_residual() <= 0.01:
+		failures += 1
+		print("FAIL a limited chain still reports a negligible residual: ", limited.get_last_residual())
+		return
+	if limited.joints[0].distance_to(Vector3.ZERO) > 0.0001:
+		failures += 1
+		print("FAIL enforcing a limit moved an anchored root: ", limited.joints[0])
+		return
+	for i in limited.segment_lengths.size():
+		var actual: float = limited.joints[i].distance_to(limited.joints[i + 1])
+		if absf(actual - limited.segment_lengths[i]) > 0.0001:
+			failures += 1
+			print("FAIL enforcing a limit stretched segment ", i, ": ", actual)
+			return
+
+	# The opposite constraint: a knee that may not fold shut.
+	var folded := FabrikChain3D.new()
+	folded.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	folded.segment_lengths = PackedFloat32Array([1.0, 1.0])
+	folded.target = Vector3(0.2, 1.0, 0.0)
+	folded.joint_limits = PackedVector2Array([Vector2(0, 0), Vector2(120, 180), Vector2(0, 0)])
+	folded.solve()
+	var knee: float = folded.get_joint_angles()[1]
+	if knee < 119.95:
+		failures += 1
+		print("FAIL knee folded to ", knee, " degrees with a 120 degree minimum")
+		return
+	if folded.get_limit_violation_count() != 0:
+		failures += 1
+		print("FAIL a single-joint minimum left a violation")
+		return
+
+	# No limits, no work: the same chain must be untouched by the projection and
+	# must still reach its target, so a limit cannot silently become always-on.
+	var unlimited := FabrikChain3D.new()
+	unlimited.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	unlimited.segment_lengths = PackedFloat32Array([1.0, 1.0])
+	unlimited.target = Vector3(1.6, 0.6, 0.0)
+	unlimited.solve()
+	if unlimited.get_limit_projection_count() != 0:
+		failures += 1
+		print("FAIL an unlimited chain projected ", unlimited.get_limit_projection_count(), " time(s)")
+		return
+	if unlimited.joints[2].distance_to(unlimited.target) > 0.001:
+		failures += 1
+		print("FAIL the unlimited baseline does not reach its target")
+		return
+	var straight := FabrikChain3D.new()
+	straight.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	straight.segment_lengths = PackedFloat32Array([1.0, 1.0])
+	# A straight chain satisfies a straight limit: no projection may happen.
+	straight.joint_limits = PackedVector2Array([Vector2(0, 0), Vector2(179, 180), Vector2(0, 0)])
+	straight.solve()
+	if straight.get_limit_projection_count() != 0:
+		failures += 1
+		print("FAIL a satisfied limit still projected ", straight.get_limit_projection_count(), " time(s)")
+		return
+
+	# Two coupled limits on a four-joint chain: fixing one joint moves the next.
+	# The bounded relaxation may not satisfy both, but it must say so, and it
+	# must stay deterministic - same input, same angles, twice.
+	var coupled := FabrikChain3D.new()
+	coupled.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0), Vector3(0, 3, 0)])
+	coupled.segment_lengths = PackedFloat32Array([1.0, 1.0, 1.0])
+	coupled.target = Vector3(1.8, 0.4, 0.0)
+	coupled.joint_limits = PackedVector2Array([
+		Vector2(0, 0), Vector2(0, 50), Vector2(0, 50), Vector2(0, 0)])
+	coupled.solve()
+	var first_angles: PackedFloat32Array = coupled.get_joint_angles()
+	var coupled_root: Vector3 = coupled.joints[0]
+	var repeat := FabrikChain3D.new()
+	repeat.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0), Vector3(0, 3, 0)])
+	repeat.segment_lengths = PackedFloat32Array([1.0, 1.0, 1.0])
+	repeat.target = Vector3(1.8, 0.4, 0.0)
+	repeat.joint_limits = PackedVector2Array([
+		Vector2(0, 0), Vector2(0, 50), Vector2(0, 50), Vector2(0, 0)])
+	repeat.solve()
+	var second_angles: PackedFloat32Array = repeat.get_joint_angles()
+	if first_angles != second_angles:
+		failures += 1
+		print("FAIL coupled limits are not deterministic: ", first_angles, " vs ", second_angles)
+		return
+	if repeat.joints[0].distance_to(coupled_root) > 0.0001:
+		failures += 1
+		print("FAIL coupled limits moved an anchored root")
+		return
+	for i in coupled.segment_lengths.size():
+		var actual: float = coupled.joints[i].distance_to(coupled.joints[i + 1])
+		if absf(actual - coupled.segment_lengths[i]) > 0.0001:
+			failures += 1
+			print("FAIL coupled limits stretched segment ", i, ": ", actual)
+			return
+	# Whatever the projection could not satisfy, it has to be countable.
+	var inside := 0
+	for i in [1, 2]:
+		if first_angles[i] <= 50.05:
+			inside += 1
+	if inside + coupled.get_limit_violation_count() < 2:
+		failures += 1
+		print("FAIL coupled limits neither satisfied nor reported joint 2 (angle=",
+			first_angles[2], " violations=", coupled.get_limit_violation_count(), ")")
+		return
+	print("PASS joint angle limits hold without moving the root or stretching bones")
+
 func _check_scene() -> void:
 	var packed := load("res://fabrik_demo.tscn")
 	if packed == null:
@@ -415,6 +557,8 @@ func _initialize() -> void:
 		_check_pole_vector()
 	if failures == 0:
 		_check_rig_ordering()
+	if failures == 0:
+		_check_joint_limits()
 	if failures == 0:
 		_check_skeleton()
 	if failures != 0:
