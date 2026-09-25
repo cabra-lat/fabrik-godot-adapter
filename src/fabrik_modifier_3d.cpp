@@ -140,7 +140,10 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
     // eases the solve in and a ramp to 0 lets the skeleton fall back to
     // whatever the rest of the pipeline produced.
     const float influence = get_influence() * p_effector->get_influence();
-    Vector3 goal = p_skeleton->to_local(p_effector->get_global_position());
+    // NEGATIVE CONTROL B: the effector's world position is used where the
+    // skeleton's local space is required. Correct only while the skeleton sits
+    // at the origin, so the suite must catch it.
+    Vector3 goal = p_effector->get_global_position();
     const Vector3 current_tip = joints[count - 1];
     if (influence < 1.0f) {
         goal = current_tip.lerp(goal, influence);
@@ -335,12 +338,6 @@ int32_t FabrikModifier3D::solve_now() {
 }
 
 void FabrikModifier3D::_process_modification() {
-    // NEGATIVE CONTROL A: the engine callback deliberately solves nothing.
-    // The suite must fail; if it does not, the tests are not measuring the
-    // engine path. Throwaway branch, never merged.
-    if (true) {
-        return;
-    }
     if (solving) {
         return;
     }
