@@ -1,0 +1,73 @@
+name: adapter CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      FABRIK_CORE_REPOSITORY: cabra-lat/fabrik-fortran
+      FABRIK_CORE_REF: d63bed9067952dc758b00a0cfabe955dff9f2d41
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out standalone core
+        uses: actions/checkout@v4
+        with:
+          repository: cabra-lat/fabrik-fortran
+          ref: d63bed9067952dc758b00a0cfabe955dff9f2d41
+          path: core
+      - uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: gcc
+      - uses: fortran-lang/setup-fpm@v10
+        with:
+          fpm-version: "0.13.0"
+      - name: Build and test core
+        working-directory: core
+        run: |
+          fpm test --profile release
+          fpm build --profile release
+      - name: Assemble core install prefix
+        run: python ci/collect_fpm_prefix.py --build core/build --prefix "$RUNNER_TEMP/fabrik-core"
+      - name: Check out pinned godot-cpp
+        uses: actions/checkout@v4
+        with:
+          repository: godotengine/godot-cpp
+          ref: 714c9e2c165db2dcb7e6ea57e62a04204d3cfbfa
+          path: godot-cpp
+      - name: Configure adapter
+        run: >
+          cmake -S . -B build -G Ninja
+          -DFABRIK_CORE_ROOT="$RUNNER_TEMP/fabrik-core"
+          -DGODOT_CPP_SOURCE_DIR="$GITHUB_WORKSPACE/godot-cpp"
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=g++
+      - name: Build adapter and C ABI smoke test
+        run: |
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Godot scene parse and instantiate
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/godot.zip" \
+            https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          godot_bin=$(find "$RUNNER_TEMP/godot" -type f -name 'Godot_v4.4.1-stable_linux.x86_64' -print -quit)
+          chmod +x "$godot_bin"
+          mkdir -p bin
+          cp build/bin/libfabrik_adapter.so bin/libfabrik_adapter.so
+          "$godot_bin" --headless --path . --script res://tests/test_godot_scene.gd
+      - name: Diff hygiene
+        run: git diff --check

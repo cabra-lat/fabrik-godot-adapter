@@ -1,0 +1,11 @@
+build/
+.godot/
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+*.pdb
+*.exp
+*.lib
+*.uid

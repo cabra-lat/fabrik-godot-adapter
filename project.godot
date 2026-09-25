@@ -1,0 +1,11 @@
+[application]
+config/name="FABRIK Godot Adapter Prototype"
+config/features=PackedStringArray("4.4")
+run/main_scene="res://demo/fabrik_demo.tscn"
+
+[native_extensions]
+paths=["res://bin/fabrik_adapter.gdextension"]
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

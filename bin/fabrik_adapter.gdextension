@@ -1,0 +1,12 @@
+[configuration]
+entry_symbol = "fabrik_adapter_library_init"
+compatibility_minimum = "4.4"
+reloadable = false
+
+[libraries]
+linux.debug.x86_64 = "res://bin/libfabrik_adapter.so"
+linux.release.x86_64 = "res://bin/libfabrik_adapter.so"
+windows.debug.x86_64 = "res://bin/fabrik_adapter.dll"
+windows.release.x86_64 = "res://bin/fabrik_adapter.dll"
+macos.debug = "res://bin/libfabrik_adapter.dylib"
+macos.release = "res://bin/libfabrik_adapter.dylib"

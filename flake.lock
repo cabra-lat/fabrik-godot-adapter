@@ -1,0 +1,81 @@
+{
+  "nodes": {
+    "fabrik-core": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1790348991,
+        "narHash": "sha256-bP/12REOD16vCDrV6i9lnVY836qh6E+6sbXNCSBBR1A=",
+        "owner": "cabra-lat",
+        "repo": "fabrik-fortran",
+        "rev": "d63bed9067952dc758b00a0cfabe955dff9f2d41",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cabra-lat",
+        "repo": "fabrik-fortran",
+        "rev": "d63bed9067952dc758b00a0cfabe955dff9f2d41",
+        "type": "github"
+      }
+    },
+    "godot-cpp": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1741015817,
+        "narHash": "sha256-bQVrIvje9jxHLKHPBB3sBgkAS6reKnL7pPr/5lLup1k=",
+        "owner": "godotengine",
+        "repo": "godot-cpp",
+        "rev": "714c9e2c165db2dcb7e6ea57e62a04204d3cfbfa",
+        "type": "github"
+      },
+      "original": {
+        "owner": "godotengine",
+        "repo": "godot-cpp",
+        "rev": "714c9e2c165db2dcb7e6ea57e62a04204d3cfbfa",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1767313136,
+        "narHash": "sha256-16KkgfdYqjaeRGBaYsNrhPRRENs0qzkQVUooNHtoy2w=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "ac62194c3917d5f474c1a844b6fd6da2db95077d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-25.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1767313136,
+        "narHash": "sha256-16KkgfdYqjaeRGBaYsNrhPRRENs0qzkQVUooNHtoy2w=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "ac62194c3917d5f474c1a844b6fd6da2db95077d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-25.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "fabrik-core": "fabrik-core",
+        "godot-cpp": "godot-cpp",
+        "nixpkgs": "nixpkgs_2"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
