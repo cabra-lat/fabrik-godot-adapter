@@ -35,8 +35,11 @@ func _build_world() -> void:
 	add_child(light)
 
 	var camera := Camera3D.new()
-	camera.position = Vector3(0.0, 2.4, 5.4)
-	camera.look_at_from_position(camera.position, Vector3(0.0, 1.4, 0.0), Vector3.UP)
+	# Close enough that the chain fills the frame: a wide shot makes the solve
+	# readable as "something moved" instead of showing the motion.
+	camera.position = Vector3(0.0, 2.0, 3.9)
+	camera.fov = 62.0
+	camera.look_at_from_position(camera.position, Vector3(0.0, 1.55, 0.0), Vector3.UP)
 	add_child(camera)
 
 	var floor_instance := MeshInstance3D.new()

@@ -87,6 +87,15 @@ set_target_properties(fabrik_adapter PROPERTIES
 if(NOT WIN32)
   set_target_properties(fabrik_adapter PROPERTIES PREFIX "lib")
 endif()
+
+# The extension is a single redistributable file, so it must not need the
+# toolchain runtime DLLs dropped next to it. A MinGW build otherwise imports
+# libgfortran-5.dll and libgcc_s_seh-1.dll, and Windows then fails the load
+# with a bare "Error 126: The specified module could not be found" - which says
+# nothing about the missing dependency. Link the GCC runtime statically.
+if(MINGW)
+  target_link_options(fabrik_adapter PRIVATE -static-libgfortran -static-libgcc)
+endif()
 # A Windows DLL is a RUNTIME artifact, not a LIBRARY one, so without
 # RUNTIME_OUTPUT_DIRECTORY it lands in the build root - and multi-config
 # generators append the configuration, e.g. build/Debug/. Set the per-config

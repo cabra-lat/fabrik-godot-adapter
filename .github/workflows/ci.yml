@@ -133,6 +133,14 @@ jobs:
             exit 1
           fi
           echo "using $src"
+          # Print what the library imports. A Windows "Error 126" is otherwise
+          # silent about the DLL that is missing, and that is the whole diagnosis.
+          if command -v objdump >/dev/null 2>&1; then
+            echo "--- imports of $lib:"
+            objdump -p "$src" 2>/dev/null | grep -i "DLL Name" || echo "(no import table readable)"
+          else
+            echo "objdump unavailable; cannot show the import table"
+          fi
           mkdir -p demo/bin
           cp "$src" "demo/bin/$lib"
           ls -l demo/bin
