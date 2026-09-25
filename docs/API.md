@@ -80,6 +80,13 @@ chain.joint_limits = PackedVector2Array([
   because the sub-chain moves rigidly; the tip is what gives way. A limit
   therefore makes the target genuinely unreachable, and `get_last_residual()`
   reports the shortfall instead of claiming a clean solve.
+- This is deliberately **not** the mechanism Aristidou, Chrysanthou & Lasenby
+  (2015) describe. That paper enforces joint restrictions by re-positioning the
+  *target* into the allowable bounds at every iteration, so the result stays a
+  true FABRIK solution of a clamped target. The post-solve projection used here
+  is far simpler and keeps the root and lengths exact, but the resulting pose is
+  not a FABRIK solution of any single target. A target-clamping variant is the
+  natural next step if a rig needs the "still a real FABRIK solution" property.
 - Fixing one joint can move the next, so the projection runs up to
   `set_limit_iterations()` passes (default 4).
 - `get_limit_projection_count()` counts the projections of the last solve;
@@ -138,25 +145,28 @@ relaxed. Collision and scene-tree ownership are out of scope too.
 
 ## References
 
-Bibliographic metadata below was verified through DOI content negotiation
-(Crossref), not from the papers themselves; only the abstract is quoted, not
-the full text.
+All four were read in full text, and are cited for what they say:
 
 - R. Aristidou, N. Chr. Chrysanthou, J. Lasenby, *Extending FABRIK with model
   constraints*, Computer Animation and Virtual Worlds 27(1), 2015, pp. 35-57,
-  <https://doi.org/10.1002/cav.1630>. Its abstract states that the paper extends
-  or adjusts FABRIK "to be used in problems with leaf joints and closed-loop
-  chains", to "control a fixed inter-joint distance", and that it "present[s]
-  various techniques for constraining anthropometric and robotic joint models
-  using FABRIK". Joint angle limits are the constraint this adapter implements
-  in post-solve form; the paper's own constrained solvers are not reproduced
-  here.
+  <https://doi.org/10.1002/cav.1630> — §5 covers anthropometric and robotic
+  joint models, and states that restrictions are enforced by re-positioning the
+  target within the allowable bounds at each iteration; it also treats leaf
+  joints, closed loops, fixed inter-joint distance, and unreachable targets.
 - A. Aristidou, J. Lasenby, *FABRIK: A fast, iterative solver for the Inverse
   Kinematics problem*, Graphical Models 73(5), 2011, pp. 243-260,
-  <https://doi.org/10.1016/j.gmod.2011.05.003>.
+  <https://doi.org/10.1016/j.gmod.2011.05.003> — the algorithm, its pseudo-code
+  and its unreachable-target case.
+- M. C. Santos et al., *FABRIK-R: An Extension Developed Based on FABRIK for
+  Robotics Manipulators*, IEEE Access, 2021,
+  <https://doi.org/10.1109/ACCESS.2021.3070693> — FABRIK on 1-DOF joint chains.
+- Z. Xu et al., *A Combined Inverse Kinematics Algorithm Using FABRIK with
+  Optimization*, arXiv:2209.02532, 2022,
+  <https://arxiv.org/abs/2209.02532> — reports FABRIK's unstable convergence
+  under high Cartesian error constraints, which is why the core's iteration
+  budget and tolerance are explicit and its status codes are checked.
 
-The core repository carries the wider reference list, including the closed-loop
-and convergence literature:
+The core repository carries the same list, and the wider provenance record:
 <https://github.com/cabra-lat/fabrik-fortran/blob/13253a77b78b515b89d2531dd93aa6934e80b523/docs/ALGORITHM.md>
 (commit pinned by `.github/workflows/ci.yml` as `FABRIK_CORE_REF`).
 

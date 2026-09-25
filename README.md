@@ -153,10 +153,15 @@ success and unreachable statuses.
   whole frame is refused rather than half-solved. See
   [`docs/API.md`](docs/API.md).
 - The core is a single-chain FABRIK implementation. The adapter now supports an
-  optional `pole_target` bend-plane constraint without changing segment lengths.
-  Closed loops, collision, and runtime scene ownership remain outside this
-  prototype: chains are still solved one at a time, and no constraint is
-  projected across chains.
+  optional `pole_target` bend-plane constraint and per-joint `joint_limits`
+  without changing segment lengths. Closed loops, collision, and runtime scene
+  ownership remain outside this prototype: chains are still solved one at a
+  time, and no constraint is projected across chains. Note that closed loops are
+  a scope item rather than a GodotIK parity gap — GodotIK v1.3.1 builds its
+  chains by walking `get_bone_parent()` upward from each effector, so it has no
+  closed loops either. See
+  [`docs/GODOTIK_COMPATIBILITY.md`](docs/GODOTIK_COMPATIBILITY.md) for the full
+  compatibility assessment.
 - Linux x86_64 is the tested host. The adapter workflow compiles and runs the C
   ABI smoke test on Linux, macOS, and Windows using each runner's native
   `gfortran`, CMake/Ninja, and `godot-cpp` toolchain; Linux additionally runs a
