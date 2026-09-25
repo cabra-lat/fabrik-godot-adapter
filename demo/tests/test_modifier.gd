@@ -105,6 +105,13 @@ func _classes_are_registered() -> void:
 	modifier.free()
 
 func _engine_drives_the_modifier() -> void:
+	# The engine resets bone poses to the base pose, runs the modifiers, and then
+	# rebuilds the pose cache - so a modifier's set_bone_pose() is not readable
+	# through get_bone_pose() after the update returns. Measured, not assumed: a
+	# write from inside the callback was invisible to get_bone_pose(), while a
+	# write made from outside it stuck. So the claim under test is "the engine
+	# calls the modifier, and the solve it produced is correct", read from the
+	# modifier's own report rather than from the bones.
 	var skeleton := _make_skeleton()
 	var made := _add_chain(skeleton, TIP, Vector3(1.5, 0.5, 0.0))
 	var modifier: FabrikModifier3D = made[0]
@@ -114,16 +121,29 @@ func _engine_drives_the_modifier() -> void:
 	# SkeletonModifier3D.
 	await process_frame
 	await process_frame
-	skeleton.force_update_all_bone_transforms()
-	var end := skeleton.get_bone_global_pose(TIP).origin
 	if modifier.get_last_chain_count() != 1:
-		_fail("engine-driven solve reported " + str(modifier.get_last_chain_count()) + " chains, expected 1 (error: " + modifier.get_last_error() + ")")
-	if start.is_equal_approx(end):
-		_fail("engine-driven solve did not move the leaf bone (still " + str(end) + ")")
-	elif end.distance_to(Vector3(1.5, 0.5, 0.0)) > 0.05:
-		_fail("engine-driven solve left the leaf at " + str(end) + ", expected near (1.5, 0.5, 0); " + "statuses " + str(modifier.get_last_statuses()) + " residual " + str(modifier.get_last_max_residual()))
+		_fail("engine-driven solve reported " + str(modifier.get_last_chain_count())
+			+ " chains, expected 1 (error: " + modifier.get_last_error() + ")")
+		skeleton.queue_free()
+		return
+	var bones := modifier.get_last_bones()
+	var solved := modifier.get_last_solved_positions()
+	if bones.size() != CHAIN_LEN or solved.size() != CHAIN_LEN:
+		_fail("engine-driven solve reported " + str(bones.size()) + " bones, expected "
+			+ str(CHAIN_LEN))
+		skeleton.queue_free()
+		return
+	# The chain is reported root-first, so the last position is the tip.
+	var tip := solved[solved.size() - 1]
+	if not modifier.get_last_statuses().has(0):
+		_fail("engine-driven solve did not report OK: " + str(modifier.get_last_statuses())
+			+ " residual " + str(modifier.get_last_max_residual()))
+	elif tip.distance_to(Vector3(1.5, 0.5, 0.0)) > 0.05:
+		_fail("engine-driven solve left the tip at " + str(tip) + ", expected near (1.5, 0.5, 0); statuses "
+			+ str(modifier.get_last_statuses()) + " residual " + str(modifier.get_last_max_residual()))
 	else:
-		print("PASS engine drives the modifier: leaf ", str(start), " -> ", str(end))
+		print("PASS engine drives the modifier: chain " + str(bones) + " solved from "
+			+ str(start) + " to tip " + str(tip))
 	skeleton.queue_free()
 
 func _influence_blends() -> void:

@@ -547,6 +547,7 @@ void FabrikChain3D::_bind_methods() {
 
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_VECTOR3_ARRAY, "joints"), "set_joints", "get_joints");
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "segment_lengths"), "set_segment_lengths", "get_segment_lengths");
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_VECTOR2_ARRAY, "joint_limits"), "set_joint_limits", "get_joint_limits");
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "target"), "set_target", "get_target");
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "pole_target"), "set_pole_target", "get_pole_target");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "root_anchored"), "set_root_anchored", "get_root_anchored");
