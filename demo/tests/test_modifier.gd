@@ -96,7 +96,7 @@ func _classes_are_registered() -> void:
 	# hotswap does not change the pose by changing a default.
 	var modifier := FabrikModifier3D.new()
 	if modifier.iteration_count != 8:
-		_fail("default iteration_count is ", str(modifier.iteration_count), ", expected 8")
+		_fail("default iteration_count is " + str(modifier.iteration_count) + ", expected 8")
 	modifier.free()
 
 func _engine_drives_the_modifier() -> void:
@@ -112,14 +112,11 @@ func _engine_drives_the_modifier() -> void:
 	skeleton.force_update_all_bone_transforms()
 	var end := skeleton.get_bone_global_pose(TIP).origin
 	if modifier.get_last_chain_count() != 1:
-		_fail("engine-driven solve reported ", str(modifier.get_last_chain_count()),
-			" chains, expected 1 (error: ", modifier.get_last_error(), ")")
+		_fail("engine-driven solve reported " + str(modifier.get_last_chain_count()) + " chains, expected 1 (error: " + modifier.get_last_error() + ")")
 	if start.is_equal_approx(end):
-		_fail("engine-driven solve did not move the leaf bone (still ", str(end), ")")
+		_fail("engine-driven solve did not move the leaf bone (still " + str(end) + ")")
 	elif end.distance_to(Vector3(1.5, 0.5, 0.0)) > 0.05:
-		_fail("engine-driven solve left the leaf at ", str(end), ", expected near (1.5, 0.5, 0); ",
-			"statuses ", str(modifier.get_last_statuses()),
-			" residual ", str(modifier.get_last_max_residual()))
+		_fail("engine-driven solve left the leaf at " + str(end) + ", expected near (1.5, 0.5, 0); " + "statuses " + str(modifier.get_last_statuses()) + " residual " + str(modifier.get_last_max_residual()))
 	else:
 		print("PASS engine drives the modifier: leaf ", str(start), " -> ", str(end))
 	skeleton.queue_free()
@@ -140,7 +137,7 @@ func _influence_blends() -> void:
 		modifier.solve_now()
 	var untouched := _leaf_position(skeleton)
 	if not untouched.is_equal_approx(rest):
-		_fail("influence 0 moved the bone: ", str(untouched), " != ", str(rest))
+		_fail("influence 0 moved the bone: " + str(untouched) + " != " + str(rest))
 	elif modifier.get_last_chain_count() != 0:
 		_fail("influence 0 still solved a chain")
 
@@ -152,7 +149,7 @@ func _influence_blends() -> void:
 	var half := _leaf_position(skeleton)
 	var expected := rest.lerp(goal, 0.5)
 	if half.distance_to(expected) > 0.02:
-		_fail("influence 0.5 landed at ", str(half), ", expected ", str(expected))
+		_fail("influence 0.5 landed at " + str(half) + ", expected " + str(expected))
 
 	# Full influence reaches the goal.
 	skeleton.reset_bone_poses()
@@ -161,7 +158,7 @@ func _influence_blends() -> void:
 	modifier.solve_now()
 	var full := _leaf_position(skeleton)
 	if full.distance_to(goal) > 0.01:
-		_fail("influence 1.0 landed at ", str(full), ", expected ", str(goal))
+		_fail("influence 1.0 landed at " + str(full) + ", expected " + str(goal))
 	else:
 		print("PASS influence blends 0 / 0.5 / 1 measurably")
 	skeleton.queue_free()
@@ -187,13 +184,11 @@ func _skeleton_transform_does_not_matter() -> void:
 		var local := skeleton.to_local(skeleton.get_bone_global_pose(TIP).origin)
 		poses.append(Transform3D(Basis(), local))
 		if skeleton.get_bone_global_pose(TIP).origin.distance_to(offset + goal) > 0.02:
-			_fail("at offset ", str(offset), " the leaf world position is ",
-				str(skeleton.get_bone_global_pose(TIP).origin), ", expected ", str(offset + goal))
+			_fail("at offset " + str(offset) + " the leaf world position is " + str(skeleton.get_bone_global_pose(TIP).origin) + ", expected " + str(offset + goal))
 		skeleton.queue_free()
 	for i in range(1, poses.size()):
 		if not poses[i].origin.is_equal_approx(poses[0].origin):
-			_fail("skeleton offset changed the solved pose: ", str(poses[0].origin),
-				" vs ", str(poses[i].origin))
+			_fail("skeleton offset changed the solved pose: " + str(poses[0].origin) + " vs " + str(poses[i].origin))
 	if failures == 0:
 		print("PASS solved pose is identical for skeletons at three different transforms")
 
@@ -210,9 +205,9 @@ func _segment_lengths_survive() -> void:
 	var root_before := Vector3(0, 1, 0)
 	var root_now := skeleton.get_bone_global_pose(CHAIN_ROOT).origin
 	if not root_now.is_equal_approx(root_before):
-		_fail("the chain root moved from ", str(root_before), " to ", str(root_now))
+		_fail("the chain root moved from " + str(root_before) + " to " + str(root_now))
 	if absf(before - after) > 0.001:
-		_fail("segment length drifted: ", str(before), " -> ", str(after))
+		_fail("segment length drifted: " + str(before) + " -> " + str(after))
 	elif modifier.get_last_statuses() != PackedInt32Array([0]):
 		_fail("expected every chain to report OK, got ", str(modifier.get_last_statuses()))
 	else:
@@ -261,8 +256,7 @@ func _transform_modes_differ() -> void:
 
 	for mode in results:
 		if float(results[mode]["place"]) > 0.05:
-			_fail("transform mode ", str(mode), " did not solve the position: off by ",
-				str(results[mode]["place"]))
+			_fail("transform mode " + str(mode) + " did not solve the position: off by " + str(results[mode]["place"]))
 
 	if results[FabrikEffector.PRESERVE_ROTATION]["preserved"] != true:
 		_fail("PRESERVE_ROTATION changed the leaf's rotation")
@@ -271,8 +265,7 @@ func _transform_modes_differ() -> void:
 	if results[FabrikEffector.STRAIGHTEN_CHAIN]["leaf_pose_is_identity"] != true:
 		_fail("STRAIGHTEN_CHAIN left a rotation on the leaf pose")
 	if float(results[FabrikEffector.FULL_TRANSFORM]["orientation"]) > 0.05:
-		_fail("FULL_TRANSFORM did not take the effector's orientation (off by ",
-			str(results[FabrikEffector.FULL_TRANSFORM]["orientation"]), " rad)")
+		_fail("FULL_TRANSFORM did not take the effector's orientation (off by " + str(results[FabrikEffector.FULL_TRANSFORM]["orientation"]) + " rad)")
 	if failures == 0:
 		print("PASS the four transform modes behave differently as documented")
 
@@ -294,8 +287,7 @@ func _unusable_chains_are_reported() -> void:
 	skeleton.force_update_all_bone_transforms()
 	modifier.solve_now()
 	if modifier.get_last_chain_count() != 0 or modifier.get_last_error() == "":
-		_fail("a one-bone chain was not refused with a reason (count ",
-			str(modifier.get_last_chain_count()), ", error '", modifier.get_last_error(), "')")
+		_fail("a one-bone chain was not refused with a reason (count " + str(modifier.get_last_chain_count()) + ", error '" + modifier.get_last_error() + "')")
 
 	effector.chain_length = CHAIN_LEN
 	effector.bone_name = "root" # a bone with no parent
