@@ -38,6 +38,10 @@ jobs:
           name: ccache-ubuntu
           path: .ccache
           retention-days: 30
+          # .ccache is a dot-directory, and upload-artifact v4 skips hidden
+          # paths unless told otherwise - without this the job succeeds having
+          # published nothing at all.
+          include-hidden-files: true
           # A missing cache is not a failure: it just means nobody has run the
           # adapter workflow on this ref yet, and there is nothing to export.
           if-no-files-found: warn
