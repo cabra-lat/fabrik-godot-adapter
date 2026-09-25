@@ -74,9 +74,7 @@ The humanoid demo solves six chains at once, drives the arm and leg targets
 across their reach limits, and slowly circles the camera. The MP4 is published
 as a GitHub Release asset rather than committed to this source repository:
 
-<video controls src="https://github.com/cabra-lat/fabrik-godot-adapter/releases/download/demo-v1/fabrik-humanoid-fixed-v4.mp4" width="640">
-  Your browser does not support the embedded video.
-</video>
+https://github.com/cabra-lat/fabrik-godot-adapter/releases/download/demo-v1/fabrik-humanoid-fixed-v4.mp4
 
 [Download the MP4](https://github.com/cabra-lat/fabrik-godot-adapter/releases/download/demo-v1/fabrik-humanoid-fixed-v4.mp4)
 
