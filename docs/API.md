@@ -43,6 +43,21 @@ Rest-pose compensation is not handled: poses are written as-is, so a rig whose
 bones are not authored along local `+Y` must fold the rest orientation in
 itself.
 
+## Pole targets
+
+FABRIK fixes the chain's reach and segment lengths, but those constraints leave
+the bend plane underdetermined. Set `pole_target` to a world-space point on the
+desired side of the chain to choose that plane:
+
+```gdscript
+chain.pole_target = Vector3(0.0, 1.0, 1.0)
+```
+
+The adapter rotates the intermediate joints around the root-to-tip axis after
+the position solve. Because that is a rigid rotation about a fixed axis, the
+root and tip stay put and every declared segment length is preserved. A zero
+pole target disables the constraint.
+
 ## Smoothing
 
 `smoothing` is in `[0, 1]`. Each solve interpolates the result towards the

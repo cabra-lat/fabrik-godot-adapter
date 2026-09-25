@@ -114,6 +114,51 @@ func _check_smoothing() -> void:
 		return
 	print("PASS smoothing eases towards the target and settles on the raw solution (", settled, " ~= raw ", raw_reach, ")")
 
+func _check_pole_vector() -> void:
+	# FABRIK fixes reach and segment lengths but leaves the bend plane free. A
+	# pole target must rotate that plane without stretching either segment.
+	var plain := FabrikChain3D.new()
+	plain.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	plain.segment_lengths = PackedFloat32Array([1.0, 1.0])
+	plain.target = Vector3(0.6, 1.5, 0.0)
+	var plain_status: int = plain.solve()
+	if plain_status != 0:
+		failures += 1
+		print("FAIL pole baseline solve status=", plain_status)
+		return
+
+	var posed := FabrikChain3D.new()
+	posed.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	posed.segment_lengths = PackedFloat32Array([1.0, 1.0])
+	posed.target = Vector3(0.6, 1.5, 0.0)
+	posed.pole_target = Vector3(0.0, 1.0, 1.0)
+	var status: int = posed.solve()
+	if status != 0:
+		failures += 1
+		print("FAIL pole solve status=", status)
+		return
+
+	var root: Vector3 = posed.joints[0]
+	var tip: Vector3 = posed.joints[2]
+	var axis: Vector3 = (tip - root).normalized()
+	var desired: Vector3 = posed.pole_target - root
+	desired = (desired - axis * desired.dot(axis)).normalized()
+	var bend: Vector3 = posed.joints[1] - root
+	bend = (bend - axis * bend.dot(axis)).normalized()
+	if bend.dot(desired) < 0.99:
+		failures += 1
+		print("FAIL pole did not rotate the bend plane (dot=", bend.dot(desired), ")")
+		return
+	if absf(posed.joints[0].distance_to(posed.joints[1]) - 1.0) > 0.0001:
+		failures += 1
+		print("FAIL pole rotated the chain out of its declared lengths")
+		return
+	if absf(posed.joints[1].distance_to(posed.joints[2]) - 1.0) > 0.0001:
+		failures += 1
+		print("FAIL pole rotated the chain out of its declared lengths")
+		return
+	print("PASS pole target rotates the bend plane without stretching segments")
+
 func _check_skeleton() -> void:
 	# pose_skeleton must actually write bone poses, and must reject bad input
 	# rather than writing nonsense into a rig.
@@ -174,6 +219,8 @@ func _initialize() -> void:
 		_check_rotations()
 	if failures == 0:
 		_check_smoothing()
+	if failures == 0:
+		_check_pole_vector()
 	if failures == 0:
 		_check_skeleton()
 	if failures != 0:

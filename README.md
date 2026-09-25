@@ -133,9 +133,10 @@ success and unreachable statuses.
 - Stress measurements on the tested host: anchored root drift is exactly zero
   through 4096-joint chains, segment-length error stays below `2e-5` m at that
   size, and a 100,000-joint solve takes about 44 ms.
-- The core is a single-chain FABRIK implementation. Full-body graph ordering,
-  closed loops, pole-vector constraints, collision, and runtime scene ownership
-  are deliberately outside this prototype.
+- The core is a single-chain FABRIK implementation. The adapter now supports an
+  optional `pole_target` bend-plane constraint without changing segment lengths.
+  Full-body graph ordering, closed loops, collision, and runtime scene ownership
+  remain outside this prototype.
 - Linux x86_64 is the tested host. The adapter workflow compiles and runs the C
   ABI smoke test on Linux, macOS, and Windows using each runner's native
   `gfortran`, CMake/Ninja, and `godot-cpp` toolchain; Linux additionally runs a
@@ -146,6 +147,9 @@ success and unreachable statuses.
   against **both Godot 4.4.1 and 4.7.1** - 4.7.1 is the version the game uses,
   so the matrix now covers the engine we actually ship. The built library is
   uploaded as a workflow artifact for manual inspection.
+- `pole_target` rotates the solved intermediate joints around the root-to-tip
+  axis, giving elbows and knees a deterministic side without stretching bones.
+  It is a post-solve constraint, not a general dynamics or collision solver.
 - CI caches the `godot-cpp` build with `ccache` (via
   `CMAKE_CXX_COMPILER_LAUNCHER`), keyed by OS, build type, and the pinned
   `godot-cpp` commit. `godot-cpp` 4.4-stable ships no CMake install/export

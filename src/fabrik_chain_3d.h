@@ -18,6 +18,10 @@ class FabrikChain3D : public RefCounted {
     PackedVector3Array joints;
     PackedFloat32Array segment_lengths;
     Vector3 target;
+    // Optional pole hint. FABRIK solves positions and leaves the bend plane
+    // underdetermined; a non-zero pole target rotates the solved intermediate
+    // joints around the root-to-tip axis so the elbow/knee faces a chosen side.
+    Vector3 pole_target;
     bool root_anchored = true;
     float tolerance = 0.00001f;
     int32_t max_iterations = 64;
@@ -38,6 +42,8 @@ public:
     PackedFloat32Array get_segment_lengths() const;
     void set_target(const Vector3 &p_target);
     Vector3 get_target() const;
+    void set_pole_target(const Vector3 &p_pole_target);
+    Vector3 get_pole_target() const;
     void set_root_anchored(bool p_anchored);
     bool get_root_anchored() const;
     void set_tolerance(float p_tolerance);
@@ -68,6 +74,7 @@ protected:
 
 private:
     void _update_rotations() const;
+    void _apply_pole_constraint();
 };
 
 } // namespace godot

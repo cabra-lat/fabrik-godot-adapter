@@ -33,6 +33,14 @@ Vector3 FabrikChain3D::get_target() const {
     return target;
 }
 
+void FabrikChain3D::set_pole_target(const Vector3 &p_pole_target) {
+    pole_target = p_pole_target;
+}
+
+Vector3 FabrikChain3D::get_pole_target() const {
+    return pole_target;
+}
+
 void FabrikChain3D::set_root_anchored(bool p_anchored) {
     root_anchored = p_anchored;
 }
@@ -118,6 +126,12 @@ int32_t FabrikChain3D::solve() {
             coordinates[static_cast<size_t>(i) * 3U + 2U]);
         joints.set(i, solved);
     }
+    // The core is a position solver: it fixes the chain's reach and lengths but
+    // leaves the bend plane free. Apply the optional pole hint before deriving
+    // orientations, so both the raw solve and smoothing see the corrected pose.
+    if (last_status != FABRIK_INVALID_ARGUMENT && last_status != FABRIK_DEGENERATE_CHAIN) {
+        _apply_pole_constraint();
+    }
     _update_rotations();
 
     // Smoothing happens in ROTATION space, never in position space.
@@ -164,6 +178,64 @@ int32_t FabrikChain3D::solve() {
         emit_signal("solve_finished", last_status, last_residual);
     }
     return last_status;
+}
+
+void FabrikChain3D::_apply_pole_constraint() {
+    const int32_t count = joints.size();
+    if (count < 3 || pole_target.length_squared() <= CMP_EPSILON) {
+        return;
+    }
+
+    const Vector3 root = joints[0];
+    const Vector3 axis_full = joints[count - 1] - root;
+    const float axis_length_squared = axis_full.length_squared();
+    if (axis_length_squared <= CMP_EPSILON) {
+        return;
+    }
+    const Vector3 axis = axis_full.normalized();
+
+    // Keep only the component of the pole perpendicular to the root-tip axis:
+    // that is the side the bend should face, and it is the only component a
+    // rotation around the chain axis can change.
+    Vector3 desired = pole_target - root;
+    desired -= axis * desired.dot(axis);
+    if (desired.length_squared() <= CMP_EPSILON) {
+        return;
+    }
+    desired = desired.normalized();
+
+    // Pick the intermediate joint furthest from the axis to define the current
+    // bend side. A joint exactly on the axis gives no usable plane and is skipped.
+    Vector3 current;
+    float best_length_squared = CMP_EPSILON;
+    for (int32_t i = 1; i < count - 1; ++i) {
+        Vector3 offset = joints[i] - root;
+        offset -= axis * offset.dot(axis);
+        const float length_squared = offset.length_squared();
+        if (length_squared > best_length_squared) {
+            best_length_squared = length_squared;
+            current = offset;
+        }
+    }
+    if (current.length_squared() <= CMP_EPSILON) {
+        return;
+    }
+    current = current.normalized();
+
+    // Signed angle from the current bend side to the requested pole, around the
+    // root-to-tip axis. std::atan2 keeps the sign instead of choosing the short
+    // unsigned angle, which matters for a pole behind the chain.
+    const float sine = axis.dot(current.cross(desired));
+    const float cosine = current.dot(desired);
+    const float angle = std::atan2(sine, cosine);
+    if (std::abs(angle) <= CMP_EPSILON) {
+        return;
+    }
+
+    const Quaternion turn(axis, angle);
+    for (int32_t i = 1; i < count - 1; ++i) {
+        joints.set(i, root + turn.xform(joints[i] - root));
+    }
 }
 
 void FabrikChain3D::_update_rotations() const {
@@ -273,6 +345,8 @@ void FabrikChain3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_segment_lengths"), &FabrikChain3D::get_segment_lengths);
     ClassDB::bind_method(D_METHOD("set_target", "target"), &FabrikChain3D::set_target);
     ClassDB::bind_method(D_METHOD("get_target"), &FabrikChain3D::get_target);
+    ClassDB::bind_method(D_METHOD("set_pole_target", "pole_target"), &FabrikChain3D::set_pole_target);
+    ClassDB::bind_method(D_METHOD("get_pole_target"), &FabrikChain3D::get_pole_target);
     ClassDB::bind_method(D_METHOD("set_root_anchored", "anchored"), &FabrikChain3D::set_root_anchored);
     ClassDB::bind_method(D_METHOD("get_root_anchored"), &FabrikChain3D::get_root_anchored);
     ClassDB::bind_method(D_METHOD("set_tolerance", "tolerance"), &FabrikChain3D::set_tolerance);
@@ -292,6 +366,7 @@ void FabrikChain3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_VECTOR3_ARRAY, "joints"), "set_joints", "get_joints");
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "segment_lengths"), "set_segment_lengths", "get_segment_lengths");
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "target"), "set_target", "get_target");
+    ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "pole_target"), "set_pole_target", "get_pole_target");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "root_anchored"), "set_root_anchored", "get_root_anchored");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tolerance"), "set_tolerance", "get_tolerance");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "max_iterations", PROPERTY_HINT_RANGE, "1,256,1"), "set_max_iterations", "get_max_iterations");
