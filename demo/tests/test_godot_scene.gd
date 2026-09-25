@@ -7,6 +7,7 @@ extends SceneTree
 ## checks anything, so a failure says *why* rather than just "class missing".
 
 var failures := 0
+var chain
 
 func _report_environment() -> void:
 	print("engine version: ", Engine.get_version_info()["string"])
@@ -26,6 +27,98 @@ func _report_environment() -> void:
 		for candidate in ["res://bin/libfabrik_adapter.so", "res://bin/libfabrik_adapter.dylib", "res://bin/fabrik_adapter.dll"]:
 			print("  library ", candidate, " exists: ", FileAccess.file_exists(candidate))
 
+func _check_rotations() -> void:
+	# The core solves positions only; the adapter must turn them into bone
+	# orientations. Every quaternion has to be a real unit rotation, and each
+	# bone's +Y has to follow the segment it spans.
+	var rotations: Array = chain.get_joint_rotations()
+	if rotations.size() != chain.joints.size():
+		failures += 1
+		print("FAIL rotation count ", rotations.size(), " != joint count ", chain.joints.size())
+		return
+	for i in rotations.size():
+		var q: Quaternion = rotations[i]
+		if absf(q.length() - 1.0) > 0.001:
+			failures += 1
+			print("FAIL rotation ", i, " is not unit length (", q.length(), ")")
+			return
+		if q.x == 0.0 and q.y == 0.0 and q.z == 0.0 and q.w == 0.0:
+			failures += 1
+			print("FAIL rotation ", i, " is the zero quaternion")
+			return
+	for i in rotations.size() - 1:
+		var bone_y: Vector3 = (rotations[i] * Vector3.UP).normalized()
+		var direction: Vector3 = (chain.joints[i + 1] - chain.joints[i]).normalized()
+		if bone_y.dot(direction) < 0.999:
+			failures += 1
+			print("FAIL bone ", i, " does not follow its segment (dot=", bone_y.dot(direction), ")")
+			return
+	print("PASS rotations are unit quaternions aligned with their segments")
+
+func _check_smoothing() -> void:
+	# With smoothing below 1 a single solve must not fully reach the target, and
+	# repeated solves must ease towards it. That is the whole point: it is what
+	# stops per-frame solving from snapping between poses.
+	var raw := FabrikChain3D.new()
+	raw.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	raw.segment_lengths = PackedFloat32Array([1.0, 1.0])
+	raw.target = Vector3(2.0, 1.0, 0.0)
+	raw.solve()
+	var raw_reach: float = raw.joints[2].distance_to(raw.target)
+
+	var eased := FabrikChain3D.new()
+	eased.joints = PackedVector3Array([Vector3.ZERO, Vector3(0, 1, 0), Vector3(0, 2, 0)])
+	eased.segment_lengths = PackedFloat32Array([1.0, 1.0])
+	eased.target = Vector3(2.0, 1.0, 0.0)
+	eased.smoothing = 0.8
+	var previous := 1.0e9
+	var moved := false
+	for i in 20:
+		eased.solve()
+		var gap: float = eased.joints[2].distance_to(eased.target)
+		if gap > previous:
+			failures += 1
+			print("FAIL smoothing moved away from the target at step ", i)
+			return
+		if absf(gap - previous) > 0.0001:
+			moved = true
+		previous = gap
+	if not moved:
+		failures += 1
+		print("FAIL smoothing froze the chain instead of easing it")
+		return
+	if previous >= raw_reach:
+		failures += 1
+		print("FAIL smoothed solve never approached the raw solve (", previous, " vs ", raw_reach, ")")
+		return
+	print("PASS smoothing eases towards the target (20 steps, gap ", previous, ")")
+
+func _check_skeleton() -> void:
+	# pose_skeleton must actually write bone poses, and must reject bad input
+	# rather than writing nonsense into a rig.
+	var skeleton := Skeleton3D.new()
+	var names := PackedStringArray()
+	for i in chain.joints.size():
+		skeleton.add_bone("bone_%d" % i)
+		names.append("bone_%d" % i)
+	var applied: int = chain.pose_skeleton(skeleton, names)
+	if applied != chain.joints.size():
+		failures += 1
+		print("FAIL pose_skeleton applied ", applied, " bones, expected ", chain.joints.size())
+		return
+	var mismatched: int = chain.pose_skeleton(skeleton, PackedStringArray(["only_one"]))
+	if mismatched != -2:
+		failures += 1
+		print("FAIL pose_skeleton accepted a mismatched bone list (", mismatched, ")")
+		return
+	var unknown: int = chain.pose_skeleton(skeleton, PackedStringArray(["no_such_bone"]))
+	if unknown != -2:
+		# a one-element list is a size mismatch before the name lookup
+		failures += 1
+		print("FAIL pose_skeleton size guard did not fire (", unknown, ")")
+		return
+	print("PASS pose_skeleton writes bones and rejects mismatched input")
+
 func _check_scene() -> void:
 	var packed := load("res://fabrik_demo.tscn")
 	if packed == null:
@@ -39,6 +132,7 @@ func _check_scene() -> void:
 		return
 	root.add_child(instance)
 	await process_frame
+	chain = instance.chain
 	if instance.chain == null:
 		failures += 1
 		print("FAIL demo script never created a FabrikChain3D")
@@ -55,6 +149,12 @@ func _initialize() -> void:
 	_report_environment()
 	if failures == 0:
 		await _check_scene()
+	if failures == 0:
+		_check_rotations()
+	if failures == 0:
+		_check_smoothing()
+	if failures == 0:
+		_check_skeleton()
 	if failures != 0:
 		print("Godot FABRIK scene parse/instantiate: FAIL (", failures, " failure(s))")
 		quit(1)

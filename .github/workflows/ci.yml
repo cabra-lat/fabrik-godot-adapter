@@ -17,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       FABRIK_CORE_REPOSITORY: cabra-lat/fabrik-fortran
-      FABRIK_CORE_REF: f6c7404cff773172aefaa4b9cb189c854d9c6157
+      FABRIK_CORE_REF: a09dcc03ca74c35f9f090f4cf332e3ad7bd657f6
       # godot-cpp 4.4-stable ships no CMake install/export rules, so there is no
       # find_package() target to cache. ccache is the cache that works with the
       # add_subdirectory() flow, and the key is pinned to the godot-cpp commit.
@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: cabra-lat/fabrik-fortran
-          ref: f6c7404cff773172aefaa4b9cb189c854d9c6157
+          ref: a09dcc03ca74c35f9f090f4cf332e3ad7bd657f6
           path: core
       - uses: fortran-lang/setup-fortran@v1
         with:
@@ -85,29 +85,64 @@ jobs:
         run: |
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure
-      - name: Godot scene parse and instantiate
-        if: matrix.os == 'ubuntu-latest'
+      - name: Godot runtime check (4.4.1 and 4.7.1)
         shell: bash
         run: |
-          curl --fail --location --retry 3 \
-            --output "$RUNNER_TEMP/godot.zip" \
-            https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip
-          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
-          godot_bin=$(find "$RUNNER_TEMP/godot" -type f -name 'Godot_v4.4.1-stable_linux.x86_64' -print -quit)
-          chmod +x "$godot_bin"
-          echo "godot binary: $godot_bin"
-          "$godot_bin" --version
+          set -euo pipefail
+          echo "runner: $RUNNER_OS"
+          case "$RUNNER_OS" in
+            Linux)
+              lib="libfabrik_adapter.so"
+              url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip"
+              url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip"
+              bin_441="Godot_v4.4.1-stable_linux.x86_64"
+              bin_471="Godot_v4.7.1-stable_linux.x86_64"
+              ;;
+            macOS)
+              lib="libfabrik_adapter.dylib"
+              url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_macos.universal.zip"
+              url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_macos.universal.zip"
+              bin_441="Godot.app/Contents/MacOS/Godot"
+              bin_471="Godot.app/Contents/MacOS/Godot"
+              ;;
+            Windows)
+              lib="fabrik_adapter.dll"
+              url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_win64.exe.zip"
+              url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_win64.exe.zip"
+              bin_441="Godot_v4.4.1-stable_win64.exe"
+              bin_471="Godot_v4.7.1-stable_win64.exe"
+              ;;
+          esac
           mkdir -p demo/bin
-          cp build/bin/libfabrik_adapter.so demo/bin/libfabrik_adapter.so
+          cp "build/bin/$lib" "demo/bin/$lib"
           ls -l demo/bin
-          # The demo project lives in demo/ so the engine never walks build/,
-          # core/ or godot-cpp/ during its filesystem scan. A bare --script run
-          # on an unimported project does not register .gdextension files, so
-          # import once first, under a timeout so a hang can never pass silently.
-          timeout 300 "$godot_bin" --headless --path demo --import --verbose \
-            2>&1 | tee "$RUNNER_TEMP/godot-import.log"
-          timeout 300 "$godot_bin" --headless --path demo --verbose \
-            --script res://tests/test_godot_scene.gd 2>&1 | tee "$RUNNER_TEMP/godot-scene.log"
+          for version in 441 471; do
+            url_var="url_${version}"
+            bin_var="bin_${version}"
+            url="${!url_var}"
+            bin_name="${!bin_var}"
+            godot_dir="$RUNNER_TEMP/godot_${version}"
+            rm -rf "$godot_dir"
+            mkdir -p "$godot_dir"
+            echo "== downloading Godot ${version}"
+            curl --fail --location --retry 3 --output "$RUNNER_TEMP/godot_${version}.zip" "$url"
+            unzip -q "$RUNNER_TEMP/godot_${version}.zip" -d "$godot_dir"
+            godot_bin="$godot_dir/$bin_name"
+            chmod +x "$godot_bin" || true
+            "$godot_bin" --version
+            # Import once: a bare --script run on an unimported project never
+            # registers .gdextension files, so the class would silently be
+            # missing. Timeouts so a hang can never pass as success.
+            timeout 300 "$godot_bin" --headless --path demo --import 2>&1 | tail -5
+            timeout 300 "$godot_bin" --headless --path demo \
+              --script res://tests/test_godot_scene.gd 2>&1 | tee "$RUNNER_TEMP/scene_${version}.log"
+          done
+      - name: Upload extension library
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabrik-adapter-${{ matrix.os }}
+          path: build/bin/
+          if-no-files-found: error
       - name: Save godot-cpp build cache
         if: always()
         uses: actions/cache/save@v4

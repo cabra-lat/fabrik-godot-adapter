@@ -2,8 +2,12 @@
 #define FABRIK_CHAIN_3D_H
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/classes/skeleton3d.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/quaternion.hpp>
+#include <godot_cpp/variant/typed_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
 namespace godot {
@@ -17,8 +21,13 @@ class FabrikChain3D : public RefCounted {
     bool root_anchored = true;
     float tolerance = 0.00001f;
     int32_t max_iterations = 64;
+    // 0 = use the raw solve, 1 = never move. Applied per solve so a moving
+    // target does not make the chain snap between poses every frame.
+    float smoothing = 0.0f;
     int32_t last_status = 0;
     float last_residual = 0.0f;
+    // Godot has no PackedQuaternionArray, so rotations are a typed Array.
+    TypedArray<Quaternion> last_rotations;
 
 public:
     void set_joints(const PackedVector3Array &p_joints);
@@ -33,14 +42,30 @@ public:
     float get_tolerance() const;
     void set_max_iterations(int32_t p_iterations);
     int32_t get_max_iterations() const;
+    void set_smoothing(float p_smoothing);
+    float get_smoothing() const;
 
     int32_t solve();
     int32_t get_last_status() const;
     float get_last_residual() const;
     String get_last_status_name() const;
 
+    // Per-joint orientations derived from the solved positions. The core is a
+    // position solver, so this is the adapter's job: each frame is parallel
+    // transported along the chain so bones do not flip when the chain bends.
+    // Convention: the bone points along local +Y, matching Skeleton3D bones.
+    TypedArray<Quaternion> get_joint_rotations() const;
+    TypedArray<Quaternion> get_last_joint_rotations() const;
+
+    // Applies the current rotations to a Skeleton3D. Returns the number of
+    // bones posed, or a negative value when the inputs do not line up.
+    int32_t pose_skeleton(Skeleton3D *p_skeleton, const PackedStringArray &p_bone_names);
+
 protected:
     static void _bind_methods();
+
+private:
+    void _update_rotations() const;
 };
 
 } // namespace godot

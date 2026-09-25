@@ -31,6 +31,20 @@ The adapter workflow checks out the published
 `.github/workflows/ci.yml`, so the separate core dependency cannot silently
 drift.
 
+## Visual demo
+
+`demo/visual_demo.tscn` is a self-contained scene - one script, geometry built
+in code, nothing to import - that drives a seven-joint chain after a moving
+target and draws the bones and joints:
+
+```sh
+cp build/bin/libfabrik_adapter.so demo/bin/
+godot --path demo res://visual_demo.tscn
+```
+
+Bones and joints are `MultiMesh` instances, so the chain costs two draw calls
+and is posed directly from the rotations the adapter derives.
+
 ## Godot scene test
 
 After building, copy the freshly built library into the descriptor's `bin/`
@@ -59,7 +73,20 @@ success and unreachable statuses.
 ## API and limitations
 
 - `FabrikChain3D` exposes packed 3D joints, optional segment lengths, target,
-  root anchoring, tolerance, and iteration budget.
+  root anchoring, tolerance, iteration budget and a `smoothing` factor.
+- `get_joint_rotations()` returns one quaternion per joint. The core is a
+  *position* solver, so this is the adapter's job: each bone frame is parallel
+  transported along the chain, which is what stops a bone from flipping as the
+  chain bends. The convention is that a bone points along its local `+Y`,
+  matching `Skeleton3D`.
+- `pose_skeleton(skeleton, bone_names)` writes those rotations onto a
+  `Skeleton3D` and returns the number of bones posed, or a negative code for
+  invalid input (`-1` null skeleton, `-2` name/rotation count mismatch, `-3`
+  unknown bone).
+- `smoothing` interpolates each solve towards the previous pose, so a moving
+  target eases instead of snapping every frame. `0` is the raw solve, `1`
+  freezes the chain.
+- A `solve_finished(status, residual)` signal fires on a successful solve.
 - The solver returns stable status integers: `0` success, `1` invalid input,
   `2` unreachable, `3` not converged, `4` degenerate chain.
 - The core is a single-chain FABRIK implementation. Full-body graph ordering,
@@ -71,6 +98,10 @@ success and unreachable statuses.
   Godot 4.4 scene parse/instantiate check. Windows/macOS extension runtime
   loading remains a native-toolchain validation item, not a claim of universal
   binary support. No cross-build or binary is committed here.
+- CI loads the built extension in a real engine on **all three** runners and
+  against **both Godot 4.4.1 and 4.7.1** - 4.7.1 is the version the game uses,
+  so the matrix now covers the engine we actually ship. The built library is
+  uploaded as a workflow artifact for manual inspection.
 - CI caches the `godot-cpp` build with `ccache` (via
   `CMAKE_CXX_COMPILER_LAUNCHER`), keyed by OS, build type, and the pinned
   `godot-cpp` commit. `godot-cpp` 4.4-stable ships no CMake install/export
