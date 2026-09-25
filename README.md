@@ -100,6 +100,7 @@ cp build/bin/libfabrik_adapter.so demo/bin/libfabrik_adapter.so
 # .gdextension files, so the class would silently be "not declared".
 godot --headless --path demo --import
 godot --headless --path demo --script res://tests/test_godot_scene.gd
+godot --headless --path demo --script res://tests/test_modifier.gd
 ```
 
 The Godot project lives in `demo/`, not at the repository root. A root-level
@@ -112,6 +113,38 @@ asserts anything, so a failure identifies itself.
 The demo scene instantiates the registered `FabrikChain3D` RefCounted class and
 solves a three-joint chain. The C++ smoke test separately exercises the C ABI's
 success and unreachable statuses.
+
+## The scene-tree layer
+
+Two classes make a `Skeleton3D` solvable without a per-frame script:
+
+- **`FabrikModifier3D`**, a `SkeletonModifier3D`, so the engine calls it on
+  every skeleton update. It solves one chain per
+- **`FabrikEffector`** child, whose own transform is the goal. `bone_name`,
+  `chain_length`, `active`, `influence`, `transform_mode` and an optional
+  `pole_target_path`, named and shaped like GodotIK's `GodotIKEffector` on
+  purpose.
+
+```gdscript
+var modifier := FabrikModifier3D.new()
+$Skeleton3D.add_child(modifier)
+
+var hand := FabrikEffector.new()
+modifier.add_child(hand)
+hand.bone_name = "hand_r"
+hand.chain_length = 3
+hand.global_position = target_position
+```
+
+`influence` is a measured blend from where the leaf bone is towards the goal,
+`0` skips the chain entirely, and a chain that cannot be built is reported
+through `get_last_error()` instead of being silently dropped. Chains are built
+by walking `get_bone_parent()` upwards from the effector bone, which is how
+GodotIK builds them, and the four `transform_mode` values behave as documented
+in [`docs/API.md`](docs/API.md). Everything works in the space
+`Skeleton3D.get_bone_global_pose()` reports - measured to be the skeleton's own
+space, not world space - and the tests check that a skeleton at three different
+transforms solves to the same local pose.
 
 ## API and limitations
 

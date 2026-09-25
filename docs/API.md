@@ -143,6 +143,81 @@ What this is **not**: a closed-loop solver. Chains are still solved one at a
 time and no constraint is projected across chains — a cycle is reported, not
 relaxed. Collision and scene-tree ownership are out of scope too.
 
+## The scene-tree layer (`FabrikEffector` + `FabrikModifier3D`)
+
+`FabrikChain3D` and `FabrikRig3D` are data. These two classes are the part that
+lives in a scene: `FabrikModifier3D` derives from `SkeletonModifier3D`, so the
+engine calls it on every skeleton update, and it solves one chain per
+`FabrikEffector` child.
+
+```gdscript
+var skeleton := $Skeleton3D
+var modifier := FabrikModifier3D.new()
+skeleton.add_child(modifier)
+
+var hand := FabrikEffector.new()
+modifier.add_child(hand)
+hand.bone_name = "hand_r"
+hand.chain_length = 3          # bones from the effector bone outwards
+hand.influence = 1.0
+hand.pole_target_path = ^"../ElbowPole"   # optional Node3D
+hand.global_position = target_position
+```
+
+- `FabrikModifier3D.iteration_count` defaults to **8**, GodotIK's default rather
+  than this adapter's 64, so substituting one for the other does not change the
+  pose by changing a default.
+- `get_effectors()` returns the `FabrikEffector` children, in tree order. Direct
+  children only, so a pole-target node hanging off an effector is not mistaken
+  for an effector.
+- `influence` (0-1, on the effector, multiplied by the modifier's own
+  inherited `influence`) is a **measured blend** from where the leaf bone is
+  this frame towards the goal, not a post-solve fade. `0` skips the chain
+  entirely, so the skeleton keeps whatever the rest of the pipeline produced.
+- `get_last_chain_count()`, `get_last_statuses()` and `get_last_error()` report
+  what the last solve did. A chain that cannot be built - an unknown bone, a
+  bone with no parent, a chain too short to bend - is **reported with a
+  reason**, never silently skipped.
+- `solve_now()` is public: the engine calls it through `_process_modification()`,
+  and a test or a manual pipeline can drive it directly.
+- The effector bone's index is re-resolved from `bone_name` on every solve, so a
+  bone renamed or added at runtime is picked up without a signal.
+
+### Transform modes
+
+`FabrikEffector.transform_mode` mirrors GodotIK's enum, and the four values
+differ from each other in the way they say:
+
+| Mode | The leaf bone's orientation |
+| --- | --- |
+| `POSITION_ONLY` (default) | whatever the solve produced |
+| `PRESERVE_ROTATION` | its pre-solve orientation, restored; the position still solves |
+| `STRAIGHTEN_CHAIN` | no rotation of its own in the pose, so the last segment continues the parent bone's direction |
+| `FULL_TRANSFORM` | the effector's own orientation, converted into skeleton space |
+
+### Spaces
+
+Everything the modifier does happens in the space
+`Skeleton3D.get_bone_global_pose()` reports, which was **measured** to be the
+skeleton's own space rather than world space: with the skeleton at
+`(10, 20, 30)`, a bone one unit along its root's `+Y` still reports
+`(0, 1, 0)`, and `to_local()` of a world point is not the same value. The
+effector goal is converted in with `Skeleton3D.to_local()`, and results are
+converted out as `pose = parent_global.inverse() * new_global`, which is the
+relation `Skeleton3D` itself uses - also measured, by writing a known global
+transform and reading it back.
+
+Bones are rotated by the smallest turn carrying their current direction onto
+the solved one, applied to the bone's *existing* basis. That preserves the
+bone's own axes and its twist, and needs no assumption that bones were authored
+with an identity basis. Segment lengths are measured from the current pose
+rather than the rest, so a skeleton already deformed by another modifier keeps
+its own proportions.
+
+What this does **not** do yet: no closed loops, no leaf joints, no ancestor
+propagation, no custom constraints, and no parity harness. See
+[`GODOTIK_COMPATIBILITY.md`](GODOTIK_COMPATIBILITY.md).
+
 ## References
 
 All four were read in full text, and are cited for what they say:

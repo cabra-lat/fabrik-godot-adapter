@@ -49,6 +49,8 @@ add_library(fabrik_adapter SHARED
   src/register_types.cpp
   src/fabrik_chain_3d.cpp
   src/fabrik_rig_3d.cpp
+  src/fabrik_effector.cpp
+  src/fabrik_modifier_3d.cpp
 )
 target_include_directories(fabrik_adapter PRIVATE
   "${FABRIK_CORE_INCLUDE_DIR}"

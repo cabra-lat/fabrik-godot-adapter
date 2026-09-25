@@ -10,8 +10,16 @@ Everything below was read from source, not from documentation summaries alone:
   `src/godot_ik_effector.h`, `src/godot_ik_constraint.h`, `doc_classes/*.xml`.
   MIT licensed, © 2025 Alexander Montag (monxa) and contributors. No licence
   blocker.
+- Godot 4.4's `extension_api.json` and godot-cpp's generated headers, for the
+  `SkeletonModifier3D` / `Skeleton3D` surface the modifier is written against.
 - The FABRIK papers, for what the reference algorithm does and does not
   constrain. See the core repository's `docs/ALGORITHM.md`.
+
+One note on naming before comparing sources: GodotIK calls its tip-ward sweep
+`solve_backward()` and its root-ward sweep `solve_forward()`, which is the
+**opposite** of both FABRIK papers, where the tip-ward sweep is
+"STAGE 1: FORWARD REACHING". The core follows the papers; GodotIK does not. The
+two codebases agree on what happens, and disagree on what to call it.
 
 ## What GodotIK actually is
 
@@ -35,48 +43,65 @@ not gaps relative to GodotIK. They drop off the critical path entirely.
 
 ## The gaps, in the order that blocks a substitution
 
-1. **No engine hook.** This adapter is `RefCounted` plus a static
-   `pose_skeleton()`. GodotIK is a `SkeletonModifier3D` the engine calls. A
-   scene holding a `GodotIK` node cannot be pointed at this adapter at all, so
-   nothing else matters until there is a `FabrikModifier3D : SkeletonModifier3D`.
-   This is also the "runtime scene ownership" limitation listed in the README.
-2. **No node-side effector.** `FabrikRig3D` moves the *data* (chains plus an
-   optional target provider), but the substitutable unit in a GodotIK scene is a
-   *node* carrying `bone_name` / `active` / `influence` / `transform_mode` /
-   `chain_length`, discovered from the tree. Needed: a `FabrikEffector` node and
-   chain construction from bone names.
-3. **`influence` is not `smoothing`.** GodotIK lerps each chain's effector
-   position between the current pose and the goal, by a per-chain weight that
-   may change every frame (`global_pose_pos.lerp(effector_position, influence)`).
-   `smoothing` is a temporal ease. Different mechanism, different feel; not
-   substitutable until an equivalent exists.
-4. **`transform_mode` has no equivalent.** This adapter does
-   position-solve-then-derive-rotations. POSITION_ONLY, PRESERVE_ROTATION,
-   STRAIGHTEN_CHAIN and FULL_TRANSFORM need explicit behaviour. STRAIGHTEN_CHAIN
-   is the one the new `joint_limits` could plausibly serve.
-5. **The constraint extension point is a different shape.** GodotIK's
+**Status: items 1-4 and 7 are implemented and tested; 5, 6, 8 and 9 are not.**
+The tests live in `demo/tests/test_modifier.gd` and run in CI.
+
+1. ~~**No engine hook.**~~ **DONE.** `FabrikModifier3D : SkeletonModifier3D`
+   overrides `_process_modification()` and solves on every skeleton update. The
+   test that proves the *engine* calls it is the only one that never calls
+   `solve_now()` itself.
+2. ~~**No node-side effector.**~~ **DONE.** `FabrikEffector : Node3D` with
+   `bone_name`, `chain_length`, `active`, `influence`, `transform_mode` and
+   `pole_target_path`; the modifier discovers effector children in tree order
+   and builds each chain by walking `get_bone_parent()` upwards, exactly as
+   `initialize_chains()` does.
+3. ~~`influence` is not `smoothing`.~~ **DONE.** Like GodotIK, influence is a
+   per-chain blend from the leaf bone's current position towards the effector
+   position, measured against the pose each frame, multiplied by the modifier's
+   own inherited `influence`. `0` skips the chain outright. The test checks
+   `0`, `0.5` and `1.0` as numbers, not as flags.
+4. ~~`transform_mode` has no equivalent.~~ **DONE, all four.**
+   `POSITION_ONLY`, `PRESERVE_ROTATION`, `STRAIGHTEN_CHAIN` and
+   `FULL_TRANSFORM` are implemented with the same meaning as GodotIK's, and the
+   test checks that each one differs from the others *and* that all four still
+   solve the position - a mode that fixed the rotation by refusing to move
+   anything would pass a rotation check and fail that one.
+5. **The constraint extension point is a different shape.** *Not done.* GodotIK's
    extensibility is a per-bone virtual `apply(parent, bone, child, direction)`
    returning three positions, in skeleton-local space. The pole vector and angle
-   limits here are post-solve projections on world-space joints. Any project
-   using custom GodotIK constraints loses them on a swap unless a
-   `FabrikConstraint` with the same signature is provided.
-6. **Ancestor propagation and rest pose.** GodotIK keeps `initial_transforms`
-   and propagates from a chain's ancestor (`closest_parent_in_chain`,
-   `pivot_child_in_ancestor`). `pose_skeleton()` here does not compensate rest
-   orientation (a documented limitation) and `FabrikRig3D`'s dependency order is
-   a different mechanism with a different failure mode. Chains that overlap will
-   diverge.
-7. **Space conversion is mandatory with (1).** GodotIK works in skeleton-local
-   space; `FabrikChain3D` works in whatever space the caller feeds it. Any
-   skeleton with a non-identity transform diverges unless the modifier converts
-   both ways, including the pole target.
-8. **Iteration defaults differ.** This adapter defaults to 64 iterations and
-   tolerance 1e-5; GodotIK defaults to `iteration_count = 8`. A hotswap can
-   therefore never mean bit-identical poses. It has to mean *same scene,
-   comparable pose*, demonstrated rather than asserted.
-9. **Tooling.** A scene converter plus a dual-run parity test (both solvers on
-   one skeleton, per-bone delta reported) is what would turn "hotswappable"
-   from a claim into a measurement.
+   limits here are post-solve projections, and a pole target is a
+   `pole_target_path` rather than a child constraint node. Any project using
+   custom GodotIK constraints loses them on a swap.
+6. **Ancestor propagation and rest pose.** *Not done.* GodotIK keeps
+   `initial_transforms` and propagates from a chain's ancestor
+   (`closest_parent_in_chain`, `pivot_child_in_ancestor`) on every iteration.
+   `FabrikModifier3D` has neither; chains are solved in effector declaration
+   order and a bone moved by two chains is written twice, the second write
+   winning. Overlapping chains will therefore diverge from GodotIK even though
+   both are "correct" in isolation. Segment lengths are measured from the
+   current pose, not the rest.
+7. ~~**Space conversion.**~~ **DONE, and measured rather than assumed.** With
+   the skeleton at `(10, 20, 30)`, `get_bone_global_pose()` still reports
+   skeleton-space coordinates, so goals are converted in with
+   `Skeleton3D.to_local()` and results out as
+   `pose = parent_global.inverse() * new_global`, which was verified by writing a
+   known global transform and reading it back. The test asserts the solved pose
+   is identical for skeletons at three different transforms.
+8. **Iteration defaults differ.** *Partly addressed.* `iteration_count` defaults
+   to **8**, GodotIK's value rather than this adapter's 64, so a hotswap does
+   not change the pose by changing a default. There is still no measurement of
+   how much the two solvers' poses differ on the same skeleton.
+9. **Tooling.** *Not done.* No scene converter, and no dual-run parity harness
+   that runs both solvers on one skeleton and reports per-bone deltas. Without
+   it, "hotswappable" remains a design claim rather than a measured one.
+
+## What a GodotIK effector node actually needs
+
+A `GodotIKEffector` is a `GodotIKEffector`, not a `FabrikEffector`. A GDExtension
+cannot make its own class pass an `is_class("GodotIKEffector")` test, so a swap
+means **retyping the effector nodes in the scene**, not renaming them. That is
+the single largest piece of real migration work, and it is a scene-authoring
+cost, not a code cost.
 
 ## Recommendation
 
@@ -85,6 +110,12 @@ point at this adapter instead of GodotIK. Then 4 and 6 for behavioural parity.
 Item 5 only if the consuming project actually uses custom constraints. Item 7
 comes with item 1. The cheapest honest milestone is 1 + 2 + 3 plus a demo scene
 that runs both solvers on one skeleton and prints the largest per-bone delta.
+
+**Update: 1, 2, 3, 4 and 7 are done and covered by tests.** The next useful
+work, in order: the dual-run parity harness (9, which also settles 8), ancestor
+propagation (6), then a `FabrikConstraint` with GodotIK's signature (5) if a
+consuming project needs it. The scene-authoring cost of retyping effector nodes
+is unavoidable and should be weighed before committing to a hotswap at all.
 
 Keep all of it in this repository. Deciding whether the game takes a
 backend-agnostic façade (and which one) is a project-level decision, and the
