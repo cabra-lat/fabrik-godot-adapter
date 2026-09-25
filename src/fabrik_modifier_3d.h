@@ -41,6 +41,14 @@ class FabrikModifier3D : public SkeletonModifier3D {
     // hotswap should not change the pose just because the default changed.
     int32_t iteration_count = 8;
     PackedInt32Array last_statuses;
+    // The bones and the positions the last solve produced, in solve order and
+    // root-first within a chain. This exists because a SkeletonModifier3D's
+    // writes are visible to the engine's own skinning pass but NOT to
+    // get_bone_pose()/get_bone_global_pose() afterwards: the skeleton restores
+    // the animation pose once the modifiers have run. Without this, a caller
+    // (or a test) has no way to see what the solve actually did.
+    PackedInt32Array last_bones;
+    PackedVector3Array last_solved_positions;
     int32_t last_chain_count = 0;
     // Largest residual over the chains solved last frame, in the core's own
     // units. A non-zero value is the honest answer to "did it get there?": a
@@ -73,6 +81,10 @@ public:
     // 0 (OK) means the chain did not reach its goal - see the core's header for
     // the codes.
     PackedInt32Array get_last_statuses() const;
+    // What the last solve produced, in the space the solve worked in (the
+    // skeleton's own space, not world).
+    PackedInt32Array get_last_bones() const;
+    PackedVector3Array get_last_solved_positions() const;
     float get_last_max_residual() const;
     // Human-readable reason the last solve skipped a chain, or "" when all
     // chains were solved.

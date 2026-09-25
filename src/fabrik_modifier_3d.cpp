@@ -153,22 +153,29 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
         const int32_t solved_index = count - 1 - i;  // solved is root-first
         const Transform3D before = snapshot_global[bone];
         Transform3D after(before.basis, solved[solved_index]);
-        // The bone's child in the chain is one step towards the leaf, i.e. the
-        // previous entry in the leaf-first list. In `solved` (root-first) that
-        // child is at solved_index + 1 - which is why the leaf, at
-        // solved_index == count - 1, has no child and is skipped: indexing
-        // solved_index - 1 here reads solved[-1] for the root and crashes.
-        const int32_t child = i > 0 ? r_bones[i - 1] : -1;
-        if (child >= 0 && solved_index + 1 < solved.size()) {
-            // Rotate the bone by the smallest turn that carries its current
-            // direction onto the solved one. Rotating the existing basis (rather
-            // than building one from +Y) keeps the bone's own axes and its twist,
-            // and needs no assumption about how the bone was authored.
-            const Vector3 current_dir = before.origin.direction_to(snapshot_global[child].origin);
-            const Vector3 solved_dir = solved[solved_index].direction_to(solved[solved_index + 1]);
-            if (current_dir.length() > kMinDirection && solved_dir.length() > kMinDirection) {
-                after.basis = Basis(Quaternion(current_dir, solved_dir)) * before.basis;
-            }
+        // A bone's forward direction runs along its chain. Two cases, and the
+        // leaf needs its own because it has no child to point at:
+        //   i > 0  - the bone has a chain child at r_bones[i - 1];
+        //   i == 0 - the leaf, whose direction is its chain parent to itself,
+        //             which is the last segment of the chain.
+        // Without the leaf case, POSITION_ONLY and PRESERVE_ROTATION are the
+        // same code path and cannot be told apart.
+        Vector3 current_dir;
+        Vector3 solved_dir;
+        if (i > 0) {
+            const int32_t child = r_bones[i - 1];
+            current_dir = before.origin.direction_to(snapshot_global[child].origin);
+            solved_dir = solved[solved_index].direction_to(solved[solved_index - 1]);
+        } else if (count > 1) {
+            current_dir = snapshot_global[r_bones[1]].origin.direction_to(before.origin);
+            solved_dir = solved[solved_index - 1].direction_to(solved[solved_index]);
+        }
+        // Rotate the bone by the smallest turn that carries its current
+        // direction onto the solved one. Rotating the existing basis (rather
+        // than building one from +Y) keeps the bone's own axes and its twist,
+        // and needs no assumption about how the bone was authored.
+        if (current_dir.length() > kMinDirection && solved_dir.length() > kMinDirection) {
+            after.basis = Basis(Quaternion(current_dir, solved_dir)) * before.basis;
         }
         // The leaf is r_bones[0] - the effector bone itself - not the last entry.
         // These modes are about the bone the effector drives, which is the one
@@ -189,6 +196,10 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
         }
         new_global[bone] = after;
         touched[bone] = true;
+    }
+    for (int32_t i = count - 1; i >= 0; --i) {
+        last_bones.append(r_bones[i]);
+        last_solved_positions.append(solved[i]);
     }
     return status;
 }
@@ -222,6 +233,8 @@ void FabrikModifier3D::_write_chain(const PackedInt32Array &r_bones, FabrikEffec
 
 int32_t FabrikModifier3D::solve_now() {
     last_statuses.clear();
+    last_bones.clear();
+    last_solved_positions.clear();
     last_error = String();
     last_chain_count = 0;
     last_max_residual = 0.0f;
@@ -295,6 +308,14 @@ PackedInt32Array FabrikModifier3D::get_last_statuses() const {
     return last_statuses;
 }
 
+PackedInt32Array FabrikModifier3D::get_last_bones() const {
+    return last_bones;
+}
+
+PackedVector3Array FabrikModifier3D::get_last_solved_positions() const {
+    return last_solved_positions;
+}
+
 String FabrikModifier3D::get_last_error() const {
     return last_error;
 }
@@ -310,6 +331,8 @@ void FabrikModifier3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("solve_now"), &FabrikModifier3D::solve_now);
     ClassDB::bind_method(D_METHOD("get_last_chain_count"), &FabrikModifier3D::get_last_chain_count);
     ClassDB::bind_method(D_METHOD("get_last_statuses"), &FabrikModifier3D::get_last_statuses);
+    ClassDB::bind_method(D_METHOD("get_last_bones"), &FabrikModifier3D::get_last_bones);
+    ClassDB::bind_method(D_METHOD("get_last_solved_positions"), &FabrikModifier3D::get_last_solved_positions);
     ClassDB::bind_method(D_METHOD("get_last_error"), &FabrikModifier3D::get_last_error);
     ClassDB::bind_method(D_METHOD("get_last_max_residual"), &FabrikModifier3D::get_last_max_residual);
 

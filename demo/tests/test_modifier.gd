@@ -209,21 +209,30 @@ func _segment_lengths_survive() -> void:
 	_add_chain(skeleton, TIP, Vector3(1.0, 1.2, 0.0))
 	var modifier := skeleton.get_child(0) as FabrikModifier3D
 	skeleton.force_update_all_bone_transforms()
-	var before := skeleton.get_bone_global_pose(CHAIN_ROOT).origin.distance_to(skeleton.get_bone_global_pose(TIP).origin)
+	# Adjacent bones, NOT the root-to-tip distance: a chain that bends brings its
+	# two ends closer together, and measuring the ends would flag a correct solve
+	# as a length change. The first version of this test did exactly that and
+	# reported 2.0 -> 1.02 for a solve that was in fact correct.
+	var before := []
+	for bone in [1, 2]:
+		before.append(skeleton.get_bone_global_pose(bone).origin.distance_to(skeleton.get_bone_global_pose(bone + 1).origin))
 	modifier.solve_now()
 	skeleton.force_update_all_bone_transforms()
-	var after := skeleton.get_bone_global_pose(CHAIN_ROOT).origin.distance_to(skeleton.get_bone_global_pose(TIP).origin)
+	var after := []
+	for bone in [1, 2]:
+		after.append(skeleton.get_bone_global_pose(bone).origin.distance_to(skeleton.get_bone_global_pose(bone + 1).origin))
 	# The chain root is bone 1, which the solve must not move.
 	var root_before := Vector3(0, 1, 0)
 	var root_now := skeleton.get_bone_global_pose(CHAIN_ROOT).origin
 	if not root_now.is_equal_approx(root_before):
 		_fail("the chain root moved from " + str(root_before) + " to " + str(root_now))
-	if absf(before - after) > 0.001:
-		_fail("segment length drifted: " + str(before) + " -> " + str(after))
+	for i in 2:
+		if absf(before[i] - after[i]) > 0.001:
+			_fail("segment " + str(i) + " length drifted: " + str(before[i]) + " -> " + str(after[i]))
 	elif modifier.get_last_statuses() != PackedInt32Array([0]):
-		_fail("expected every chain to report OK, got ", str(modifier.get_last_statuses()))
+		_fail("expected every chain to report OK, got " + str(modifier.get_last_statuses()))
 	else:
-		print("PASS chain root stays put and segment length is preserved (", str(after), ")")
+		print("PASS chain root stays put and both segment lengths hold (" + str(after) + ")")
 	skeleton.queue_free()
 
 func _transform_modes_differ() -> void:
