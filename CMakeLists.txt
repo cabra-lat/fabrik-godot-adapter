@@ -77,6 +77,19 @@ set_target_properties(fabrik_adapter PROPERTIES
   PREFIX "lib"
   OUTPUT_NAME "fabrik_adapter"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+  ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
+# A Windows DLL is a RUNTIME artifact, not a LIBRARY one, so without
+# RUNTIME_OUTPUT_DIRECTORY it lands in the build root - and multi-config
+# generators append the configuration, e.g. build/Debug/. Set the per-config
+# variants too so one build tree always has a single predictable location.
+foreach(config IN ITEMS DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+  set_target_properties(fabrik_adapter PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_${config} "${CMAKE_BINARY_DIR}/bin"
+    LIBRARY_OUTPUT_DIRECTORY_${config} "${CMAKE_BINARY_DIR}/bin"
+    ARCHIVE_OUTPUT_DIRECTORY_${config} "${CMAKE_BINARY_DIR}/lib"
+  )
+endforeach()
 # Keep the descriptor beside the source-tree demo project. CI copies only the
 # freshly built library into bin/; no binary is part of the source package.
