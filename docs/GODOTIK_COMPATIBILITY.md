@@ -111,14 +111,65 @@ Item 5 only if the consuming project actually uses custom constraints. Item 7
 comes with item 1. The cheapest honest milestone is 1 + 2 + 3 plus a demo scene
 that runs both solvers on one skeleton and prints the largest per-bone delta.
 
-**Update: 1, 2, 3, 4 and 7 are done and covered by tests.** The next useful
-work, in order: the dual-run parity harness (9, which also settles 8), ancestor
-propagation (6), then a `FabrikConstraint` with GodotIK's signature (5) if a
-consuming project needs it. The scene-authoring cost of retyping effector nodes
-is unavoidable and should be weighed before committing to a hotswap at all.
+**Update: 1, 2, 3, 4 and 7 are done and covered by tests, and the suite is now
+negative-controlled** (see below). The next useful work, in order: the dual-run
+parity harness (9, which also settles 8), ancestor propagation (6), then a
+`FabrikConstraint` with GodotIK's signature (5) if a consuming project needs it.
+The scene-authoring cost of retyping effector nodes is unavoidable and should be
+weighed before committing to a hotswap at all.
 
 Keep all of it in this repository. Deciding whether the game takes a
 backend-agnostic façade (and which one) is a project-level decision, and the
 alternative to a hotswap — a straight replacement behind one interface — is worth
 weighing explicitly, because a hotswap implies a scene that can hold both
 implementations at once.
+
+## The tests are negative-controlled
+
+A characterization that only ever prints PASS is not evidence. Each of the three
+critical paths in this adapter was disabled on a throwaway branch
+(`negative-control`, never merged) and the suite had to go red. All three failed
+on Ubuntu, macOS and Windows.
+
+| Control | Change | Result |
+| --- | --- | --- |
+| A - engine hook | `_process_modification()` returns without solving | `FAIL engine-driven solve reported 0 chains, expected 1` (run `36193062241`) |
+| B - space conversion | goal taken in world space instead of `Skeleton3D.to_local()` | 4 failures, all the space assertions, e.g. `FAIL skeleton offset changed the solved pose: (1.2, 0.6, 0.7) vs (0.588, 2.029, 1.611)` (run `36193400149`) |
+| C - write order | poses written leaf-first instead of root-first | `FAIL transform mode 2 did not solve the position: off by 0.202` and `FAIL STRAIGHTEN_CHAIN left a rotation on the leaf pose` (run `36193817611`) |
+
+Two honest notes on what the controls do and do not prove:
+
+- **Control C is caught by the transform-mode tests, not by the length test.**
+  Writing leaf-first leaves each child off by its parent's own delta, which is
+  small on a unit-length fixture; the segment-length assertion still passes. The
+  order is load-bearing and the suite does catch it, but only through the
+  position assertions, so those are the ones to keep if the length test is ever
+  trimmed.
+- **The engine-hook test cannot read the bones back.** The engine resets bone
+  poses to the base pose, runs the modifiers, and rebuilds the pose cache, so a
+  modifier's `set_bone_pose()` is not visible through `get_bone_pose()`
+  afterwards - measured, not assumed: a write made from *outside* the callback
+  does stick, one made from inside does not. The test therefore asserts that the
+  engine called the modifier and that the solve it reported is correct, via
+  `get_last_bones()` / `get_last_solved_positions()`. It does not assert on
+  `Skeleton3D` state, and it cannot.
+
+## What these tests have already caught
+
+The suite earned its keep before it ever went green:
+
+- The chain root's forward direction was read from `solved[-1]`, because the code
+  used `solved_index - 1` where the child of a bone at index `k` is `k + 1`. This
+  segfaulted the engine-driven path; the crash was found by instrumenting
+  `_solve_chain` and reading the log, not by reasoning.
+- The solve report paired a root bone with the tip's position, so a correct solve
+  was reported as a tip sitting on the root. The test caught it.
+- The leaf bone was never rotated, which made `POSITION_ONLY` and
+  `PRESERVE_ROTATION` the same code path. The test that the four modes differ
+  caught it.
+- `joint_limits` was bound as methods but never registered with
+  `ADD_PROPERTY`, so `chain.joint_limits = ...` failed from GDScript while
+  `set_joint_limits()` worked. Caught by the existing limits test's script error.
+- A test of its own was wrong: it measured root-to-tip distance, which *must*
+  shrink when a chain bends, and reported a correct solve as a length change. It
+  now measures each adjacent bone pair.

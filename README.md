@@ -194,7 +194,12 @@ transforms solves to the same local pose.
   chains by walking `get_bone_parent()` upward from each effector, so it has no
   closed loops either. See
   [`docs/GODOTIK_COMPATIBILITY.md`](docs/GODOTIK_COMPATIBILITY.md) for the full
-  compatibility assessment.
+  compatibility assessment, including the negative controls that prove the test
+  suite fails when the engine hook, the space conversion or the pose write order
+  is disabled. If you are considering replacing an existing IK with this one,
+  read
+  [`docs/MIGRATION_COST.md`](docs/MIGRATION_COST.md) first: it argues that the
+  replacement is not justified, and is written to close that question.
 - Linux x86_64 is the tested host. The adapter workflow compiles and runs the C
   ABI smoke test on Linux, macOS, and Windows using each runner's native
   `gfortran`, CMake/Ninja, and `godot-cpp` toolchain; Linux additionally runs a
