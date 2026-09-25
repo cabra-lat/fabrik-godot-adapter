@@ -116,6 +116,16 @@ jobs:
           mkdir -p demo/bin
           cp "build/bin/$lib" "demo/bin/$lib"
           ls -l demo/bin
+          # GNU timeout does not exist on macOS runners; fall back to gtimeout and
+          # say which guard is active instead of silently losing the hang check.
+          if command -v timeout >/dev/null 2>&1; then
+            guard="timeout"
+          elif command -v gtimeout >/dev/null 2>&1; then
+            guard="gtimeout"
+          else
+            guard=""
+          fi
+          echo "hang guard: ${guard:-DISABLED (no timeout binary on this runner)}"
           for version in 441 471; do
             url_var="url_${version}"
             bin_var="bin_${version}"
@@ -133,8 +143,8 @@ jobs:
             # Import once: a bare --script run on an unimported project never
             # registers .gdextension files, so the class would silently be
             # missing. Timeouts so a hang can never pass as success.
-            timeout 300 "$godot_bin" --headless --path demo --import 2>&1 | tail -5
-            timeout 300 "$godot_bin" --headless --path demo \
+            $guard 300 "$godot_bin" --headless --path demo --import 2>&1 | tail -5
+            $guard 300 "$godot_bin" --headless --path demo \
               --script res://tests/test_godot_scene.gd 2>&1 | tee "$RUNNER_TEMP/scene_${version}.log"
           done
       - name: Upload extension library
