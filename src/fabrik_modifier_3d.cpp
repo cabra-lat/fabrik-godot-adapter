@@ -2,6 +2,7 @@
 
 #include <godot_cpp/classes/skeleton3d.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
@@ -98,6 +99,23 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
     r_residual = 0.0f;
     if (count < 2) {
         return -1; // A single bone cannot bend; the core would report it as such.
+    }
+    // Every bone index below is used to index the per-bone working set, so a
+    // bone the working set does not cover is a crash, not a wrong answer. The
+    // guard is cheap and it turns a segfault into a diagnosable refusal: the
+    // engine can call this before the skeleton reports the bones a chain
+    // references.
+    if (int32_t(new_global.size()) < p_skeleton->get_bone_count() || count > p_skeleton->get_bone_count()) {
+        _ensure_capacity(p_skeleton->get_bone_count());
+    }
+    for (int32_t i = 0; i < count; ++i) {
+        if (r_bones[i] < 0 || r_bones[i] >= int32_t(new_global.size())) {
+            ERR_PRINT("[FabrikModifier3D] bone " + String::num_int64(r_bones[i])
+                + " is outside the working set of " + String::num_int64(new_global.size())
+                + " bones; skipping the chain");
+            r_residual = 0.0f;
+            return -1;
+        }
     }
 
     // r_bones is leaf-first (the effector's bone first, then its parents), but
