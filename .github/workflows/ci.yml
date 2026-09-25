@@ -17,14 +17,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       FABRIK_CORE_REPOSITORY: cabra-lat/fabrik-fortran
-      FABRIK_CORE_REF: 6745c0b525a3dc05e8a35e7150993308d574331c
+      FABRIK_CORE_REF: f6c7404cff773172aefaa4b9cb189c854d9c6157
+      # godot-cpp 4.4-stable ships no CMake install/export rules, so there is no
+      # find_package() target to cache. ccache is the cache that works with the
+      # add_subdirectory() flow, and the key is pinned to the godot-cpp commit.
+      GODOT_CPP_REPOSITORY: godotengine/godot-cpp
+      GODOT_CPP_REF: 714c9e2c165db2dcb7e6ea57e62a04204d3cfbfa
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
     steps:
       - uses: actions/checkout@v4
       - name: Check out standalone core
         uses: actions/checkout@v4
         with:
           repository: cabra-lat/fabrik-fortran
-          ref: 6745c0b525a3dc05e8a35e7150993308d574331c
+          ref: f6c7404cff773172aefaa4b9cb189c854d9c6157
           path: core
       - uses: fortran-lang/setup-fortran@v1
         with:
@@ -46,6 +53,24 @@ jobs:
           repository: godotengine/godot-cpp
           ref: 714c9e2c165db2dcb7e6ea57e62a04204d3cfbfa
           path: godot-cpp
+      - name: Install ccache
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            choco install ccache -y --no-progress
+            echo "/c/ProgramData/chocolatey/bin" >> "$GITHUB_PATH"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ccache
+          else
+            sudo apt-get update
+            sudo apt-get install -y ccache
+          fi
+      - name: Restore godot-cpp build cache
+        id: ccache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.os }}-Release-${{ env.GODOT_CPP_REF }}
       - name: Configure adapter
         shell: bash
         run: >
@@ -54,6 +79,7 @@ jobs:
           -DGODOT_CPP_SOURCE_DIR=godot-cpp
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=g++
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build adapter and C ABI smoke test
         shell: bash
         run: |
@@ -72,5 +98,15 @@ jobs:
           mkdir -p bin
           cp build/bin/libfabrik_adapter.so bin/libfabrik_adapter.so
           "$godot_bin" --headless --path . --script res://tests/test_godot_scene.gd
+      - name: Save godot-cpp build cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.os }}-Release-${{ env.GODOT_CPP_REF }}
+      - name: Report ccache statistics
+        if: always()
+        shell: bash
+        run: ccache --show-stats || true
       - name: Diff hygiene
         run: git diff --check

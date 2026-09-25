@@ -60,3 +60,9 @@ success and unreachable statuses.
   Godot 4.4 scene parse/instantiate check. Windows/macOS extension runtime
   loading remains a native-toolchain validation item, not a claim of universal
   binary support. No cross-build or binary is committed here.
+- CI caches the `godot-cpp` build with `ccache` (via
+  `CMAKE_CXX_COMPILER_LAUNCHER`), keyed by OS, build type, and the pinned
+  `godot-cpp` commit. `godot-cpp` 4.4-stable ships no CMake install/export
+  rules, so there is no prebuilt package to `find_package()` and cache instead;
+  the compiler cache is the one that composes with the `add_subdirectory()`
+  build. The first run on a commit is a cold cache; later runs reuse it.

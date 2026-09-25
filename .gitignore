@@ -1,5 +1,8 @@
 build/
 .godot/
+# CI compiler cache (godot-cpp is ~600 TUs; see .github/workflows/ci.yml)
+.ccache/
+core-prefix/
 *.o
 *.a
 *.so
