@@ -190,6 +190,9 @@ jobs:
             run_guarded "$godot_bin" --headless --path demo --import 2>&1 | tail -5
             run_guarded "$godot_bin" --headless --path demo \
               --script res://tests/test_godot_scene.gd 2>&1 | tee "$RUNNER_TEMP/scene_${version}.log"
+            echo "== humanoid demo assertions"
+            run_guarded "$godot_bin" --headless --path demo \
+              --script res://tests/test_humanoid.gd 2>&1 | tee "$RUNNER_TEMP/humanoid_${version}.log"
           done
       - name: Upload extension library
         uses: actions/upload-artifact@v4
