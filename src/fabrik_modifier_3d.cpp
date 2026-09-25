@@ -97,9 +97,6 @@ void FabrikModifier3D::_write_pose(int32_t p_bone, const Transform3D &p_global, 
 int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleton3D *p_skeleton, const PackedInt32Array &r_bones, float &r_residual) {
     const int32_t count = r_bones.size();
     r_residual = 0.0f;
-    UtilityFunctions::print("[FabrikModifier3D] _solve_chain enter: count=", count,
-            " bones=", r_bones, " skeleton_bones=", p_skeleton->get_bone_count(),
-            " working_set=", new_global.size(), " in_callback=", in_modifier_callback);
     if (count < 2) {
         return -1; // A single bone cannot bend; the core would report it as such.
     }
@@ -151,22 +148,17 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
 
     Ref<FabrikChain3D> chain;
     chain.instantiate();
-    UtilityFunctions::print("[FabrikModifier3D]   chain instantiated");
     chain->set_joints(joints);
     chain->set_segment_lengths(lengths);
     chain->set_target(goal);
     chain->set_root_anchored(true);
     chain->set_max_iterations(iteration_count);
-    UtilityFunctions::print("[FabrikModifier3D]   chain configured: joints=", joints,
-            " lengths=", lengths, " goal=", goal);
     // A pole hint only works in the same space as the chain, hence to_local.
     Node3D *pole = p_effector->get_pole_target();
     if (pole != nullptr) {
         chain->set_pole_target(p_skeleton->to_local(pole->get_global_position()));
     }
-    UtilityFunctions::print("[FabrikModifier3D]   about to solve");
     chain->solve();
-    UtilityFunctions::print("[FabrikModifier3D]   solved");
     const PackedVector3Array solved = chain->get_joints();
     const int32_t status = chain->get_last_status();
     r_residual = chain->get_last_residual();
@@ -179,20 +171,24 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
         const int32_t solved_index = count - 1 - i;  // solved is root-first
         const Transform3D before = snapshot_global[bone];
         Transform3D after(before.basis, solved[solved_index]);
-        // A bone's forward direction runs along its chain. Two cases, and the
-        // leaf needs its own because it has no child to point at:
-        //   i > 0  - the bone has a chain child at r_bones[i - 1];
-        //   i == 0 - the leaf, whose direction is its chain parent to itself,
-        //             which is the last segment of the chain.
-        // Without the leaf case, POSITION_ONLY and PRESERVE_ROTATION are the
-        // same code path and cannot be told apart.
+        // A bone's forward direction runs along its chain. The bone at
+        // r_bones[i] sits at solved_index = count - 1 - i in the root-first
+        // solved array, and its chain child - the next step TOWARDS the leaf -
+        // is r_bones[i - 1], which is solved_index + 1. The leaf (i == 0) has no
+        // child and takes its direction from its chain parent instead, which is
+        // the last segment of the chain.
+        //
+        // Both directions are bounds-checked against `solved` rather than
+        // reasoned about: indexing solved_index - 1 here reads solved[-1] at the
+        // chain root (solved_index == 0) and segfaults, which is exactly what
+        // this code did for two CI runs.
         Vector3 current_dir;
         Vector3 solved_dir;
-        if (i > 0) {
+        if (i > 0 && solved_index + 1 < solved.size()) {
             const int32_t child = r_bones[i - 1];
             current_dir = before.origin.direction_to(snapshot_global[child].origin);
-            solved_dir = solved[solved_index].direction_to(solved[solved_index - 1]);
-        } else if (count > 1) {
+            solved_dir = solved[solved_index].direction_to(solved[solved_index + 1]);
+        } else if (i == 0 && count > 1 && solved_index >= 1) {
             current_dir = snapshot_global[r_bones[1]].origin.direction_to(before.origin);
             solved_dir = solved[solved_index - 1].direction_to(solved[solved_index]);
         }
@@ -222,8 +218,6 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
         }
         new_global[bone] = after;
         touched[bone] = true;
-        UtilityFunctions::print("[FabrikModifier3D]   bone ", bone, " -> ", after.origin,
-                " (i=", i, " solved_index=", solved_index, ")");
     }
     for (int32_t i = count - 1; i >= 0; --i) {
         last_bones.append(r_bones[i]);
