@@ -138,10 +138,17 @@ success and unreachable statuses.
 - Stress measurements on the tested host: anchored root drift is exactly zero
   through 4096-joint chains, segment-length error stays below `2e-5` m at that
   size, and a 100,000-joint solve takes about 44 ms.
+- `FabrikRig3D` owns an ordered list of chains and solves them as one unit:
+  declaration order is the default, `add_dependency(child, parent)` overrides
+  it, and `set_target_provider(chain, callable)` derives a target from a chain
+  solved earlier in the same frame. A dependency cycle is reported and the
+  whole frame is refused rather than half-solved. See
+  [`docs/API.md`](docs/API.md).
 - The core is a single-chain FABRIK implementation. The adapter now supports an
   optional `pole_target` bend-plane constraint without changing segment lengths.
-  Full-body graph ordering, closed loops, collision, and runtime scene ownership
-  remain outside this prototype.
+  Closed loops, collision, and runtime scene ownership remain outside this
+  prototype: chains are still solved one at a time, and no constraint is
+  projected across chains.
 - Linux x86_64 is the tested host. The adapter workflow compiles and runs the C
   ABI smoke test on Linux, macOS, and Windows using each runner's native
   `gfortran`, CMake/Ninja, and `godot-cpp` toolchain; Linux additionally runs a

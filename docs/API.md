@@ -58,6 +58,50 @@ the position solve. Because that is a rigid rotation about a fixed axis, the
 root and tip stay put and every declared segment length is preserved. A zero
 pole target disables the constraint.
 
+## Solving a whole rig in order (`FabrikRig3D`)
+
+A body is not a set of independent chains: a hand or a prop target usually lives
+somewhere on an arm that should already be solved this frame. `FabrikRig3D`
+owns an ordered list of `FabrikChain3D` objects and solves them in a
+deterministic order derived from the declaration order plus explicit
+dependencies.
+
+```gdscript
+var rig := FabrikRig3D.new()
+rig.add_chain(thigh)
+rig.add_chain(shin)          # declared before its parent on purpose
+rig.add_dependency(shin, thigh)   # "solve thigh before shin"
+
+rig.set_target_provider(shin, func(_rig: FabrikRig3D, _index: int) -> Vector3:
+	return rig.get_chains()[0].joints[-1] + Vector3(0, 0, 0.1))
+
+if not rig.solve_all():
+	push_error(rig.get_last_error())
+```
+
+- `add_chain` ignores nulls and duplicates: solving a chain twice per frame
+  would ease it twice and quietly make its smoothing frame-rate dependent.
+- `get_solve_order()` returns the indices actually solved, in that order;
+  `get_chains()` is the declaration order they index into.
+- `move_chain` reorders the declaration, which is the tie-break when no
+  dependency decides.
+- `set_target_provider(chain, callable)` is called as `callable(rig, index)`
+  immediately before that chain's solve, so a target can be derived from a chain
+  solved earlier in the same frame. It must return a `Vector3`; anything else
+  leaves the chain's current target in place and is counted in
+  `get_last_provider_failures()` rather than being silently ignored.
+- `get_last_statuses()` holds one status per chain, in solve order.
+- `solve_all()` returns `false` — and solves **nothing** — when the dependencies
+  contain a cycle or a chain has been freed. A half-solved rig looks posed but is
+  not, so the whole frame is refused and `get_last_error()` says why.
+
+Dependencies are keyed by instance id, so reordering or removing a chain cannot
+leave a stale index behind; removing a chain also drops its edges.
+
+What this is **not**: a closed-loop solver. Chains are still solved one at a
+time and no constraint is projected across chains — a cycle is reported, not
+relaxed. Collision and scene-tree ownership are out of scope too.
+
 ## Smoothing
 
 `smoothing` is in `[0, 1]`. Each solve interpolates the result towards the

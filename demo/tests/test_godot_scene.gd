@@ -9,6 +9,35 @@ extends SceneTree
 var failures := 0
 var chain
 
+# --- rig-ordering test fixtures -------------------------------------------
+# The provider is a script method so the rig calls real GDScript: that is the
+# path a real rig takes to derive a target from a chain solved this frame.
+var provider_parent: FabrikChain3D = null
+var provider_offset := Vector3.ZERO
+var provider_returns_garbage := false
+
+func _make_rig_chain(base: Vector3, length: float, target: Vector3) -> FabrikChain3D:
+	return _make_rig_chain_n(base, 1, length, target)
+
+func _make_rig_chain_n(base: Vector3, segments: int, length: float, target: Vector3) -> FabrikChain3D:
+	var made := FabrikChain3D.new()
+	var points := PackedVector3Array()
+	var lengths := PackedFloat32Array()
+	for i in segments + 1:
+		points.append(base + Vector3(0, length * float(i), 0))
+	for i in segments:
+		lengths.append(length)
+	made.joints = points
+	made.segment_lengths = lengths
+	made.target = target
+	made.root_anchored = true
+	return made
+
+func _on_target_provider(_rig: FabrikRig3D, _index: int) -> Variant:
+	if provider_returns_garbage:
+		return "not a target"
+	return provider_parent.joints[provider_parent.joints.size() - 1] + provider_offset
+
 func _report_environment() -> void:
 	print("engine version: ", Engine.get_version_info()["string"])
 	print("project path: ", ProjectSettings.globalize_path("res://"))
@@ -19,6 +48,7 @@ func _report_environment() -> void:
 		print(FileAccess.get_file_as_string("res://bin/fabrik_adapter.gdextension").strip_edges())
 		print("--- end descriptor ---")
 	print("FabrikChain3D registered: ", ClassDB.class_exists("FabrikChain3D"))
+	print("FabrikRig3D registered: ", ClassDB.class_exists("FabrikRig3D"))
 	var loaded := GDExtensionManager.get_loaded_extensions()
 	print("loaded extensions: ", loaded)
 	if not ClassDB.class_exists("FabrikChain3D"):
@@ -183,7 +213,169 @@ func _check_skeleton() -> void:
 		failures += 1
 		print("FAIL pose_skeleton size guard did not fire (", unknown, ")")
 		return
+	# This Skeleton3D was never added to the tree, so it is not freed by it:
+	# leaving it to exit is what produces the "ObjectDB instance was leaked"
+	# warning, which then trains everyone to ignore leak warnings.
+	skeleton.free()
 	print("PASS pose_skeleton writes bones and rejects mismatched input")
+
+func _check_rig_ordering() -> void:
+	# A full-body rig is only useful if solve order is part of the contract. Three
+	# separate claims, each of which can fail on its own:
+	#   1. with no dependencies, chains solve in declaration order;
+	#   2. a dependency overrides declaration order;
+	#   3. a child can read a parent's SOLVED position in the same frame.
+	var plain := FabrikRig3D.new()
+	var a := _make_rig_chain(Vector3.ZERO, 1.0, Vector3(1.0, 0.0, 0.0))
+	var b := _make_rig_chain(Vector3(0, 0, 2), 1.0, Vector3(0.5, 0.0, 2.0))
+	var c := _make_rig_chain(Vector3(0, 0, 4), 1.0, Vector3(0.0, 1.0, 4.0))
+	plain.add_chain(a)
+	plain.add_chain(b)
+	plain.add_chain(c)
+	# A duplicate must not double-solve a chain: it would ease it twice per frame.
+	plain.add_chain(b)
+	if plain.get_chain_count() != 3:
+		failures += 1
+		print("FAIL rig accepted a duplicate chain (count=", plain.get_chain_count(), ")")
+		return
+	if not plain.has_valid_order():
+		failures += 1
+		print("FAIL a dependency-free rig reported an invalid order")
+		return
+	if not plain.solve_all():
+		failures += 1
+		print("FAIL solve_all rejected a dependency-free rig: ", plain.get_last_error())
+		return
+	var declared: PackedInt32Array = plain.get_solve_order()
+	if declared != PackedInt32Array([0, 1, 2]):
+		failures += 1
+		print("FAIL declaration order was not the solve order: ", declared)
+		return
+	if plain.get_last_statuses().size() != 3:
+		failures += 1
+		print("FAIL rig did not report one status per chain")
+		return
+
+	# Dependency: the child is DECLARED first, so declaration order alone would
+	# solve it first and read a stale parent tip.
+	var linked := FabrikRig3D.new()
+	var parent := _make_rig_chain(Vector3.ZERO, 2.0, Vector3(2.0, 0.0, 0.0))
+	# The child must be long enough to actually reach the parent's tip: a
+	# one-segment chain cannot reach a point outside its own reach sphere, and
+	# that is a documented core behaviour, not something to assert away here.
+	var child := _make_rig_chain_n(Vector3.ZERO, 3, 1.0, Vector3(1, 0, 0))
+	linked.add_chain(child)
+	linked.add_chain(parent)
+	linked.solve_all()
+	if linked.get_solve_order() != PackedInt32Array([0, 1]):
+		failures += 1
+		print("FAIL rig reordered an independent pair (", linked.get_solve_order(), ")")
+		return
+	if not linked.add_dependency(child, parent):
+		failures += 1
+		print("FAIL rig refused a dependency between two chains it owns")
+		return
+	provider_parent = parent
+	provider_offset = Vector3(0, 0, 0.5)
+	provider_returns_garbage = false
+	linked.set_target_provider(child, Callable(self, "_on_target_provider"))
+	linked.solve_all()
+	var reordered: PackedInt32Array = linked.get_solve_order()
+	if reordered != PackedInt32Array([1, 0]):
+		failures += 1
+		print("FAIL dependency did not move the parent ahead of the child: ", reordered)
+		return
+	# The child is long enough to reach, anchored at its own root, targeting the
+	# parent's freshly solved tip. If the parent had not been solved first, the
+	# provider would have returned the parent's PRE-solve tip instead.
+	var expected: Vector3 = parent.joints[1] + provider_offset
+	if child.target.distance_to(expected) > 0.0001:
+		failures += 1
+		print("FAIL child target is stale: ", child.target, " vs ", expected)
+		return
+	var tip_gap: float = child.joints[3].distance_to(child.target)
+	if tip_gap > 0.0001:
+		failures += 1
+		print("FAIL child did not reach the target read from its parent (gap=", tip_gap, ")")
+		return
+	if child.get_last_status() != 0:
+		failures += 1
+		print("FAIL child status ", child.get_last_status(), " ", child.get_last_status_name())
+		return
+
+	# A provider that returns the wrong type must be counted, not silently
+	# treated as "no news".
+	provider_returns_garbage = true
+	linked.solve_all()
+	if linked.get_last_provider_failures() != 1:
+		failures += 1
+		print("FAIL a bad provider result was not reported (", linked.get_last_provider_failures(), ")")
+		return
+	if linked.get_last_statuses().size() != 2:
+		failures += 1
+		print("FAIL a bad provider result stopped the chain from solving")
+		return
+	provider_returns_garbage = false
+
+	# move_chain is the tie-break when no dependency decides. The order is a set
+	# of INDICES, so what has to be checked is which chain lands first.
+	var movable := FabrikRig3D.new()
+	movable.add_chain(parent)
+	movable.add_chain(child)
+	if not movable.move_chain(parent, 1):
+		failures += 1
+		print("FAIL move_chain refused a valid move")
+		return
+	if movable.get_chains()[0] != child:
+		failures += 1
+		print("FAIL move_chain did not change the declaration order")
+		return
+	movable.solve_all()
+	var moved: PackedInt32Array = movable.get_solve_order()
+	if moved != PackedInt32Array([0, 1]):
+		failures += 1
+		print("FAIL solve order did not follow the new declaration order: ", moved)
+		return
+
+	# A cycle is refused, and refused WHOLE: no chain is solved, because a
+	# half-solved rig looks posed but is not.
+	var cyclic := FabrikRig3D.new()
+	cyclic.add_chain(parent)
+	cyclic.add_chain(child)
+	cyclic.add_dependency(parent, child)
+	cyclic.add_dependency(child, parent)
+	if cyclic.has_valid_order():
+		failures += 1
+		print("FAIL a dependency cycle was reported as orderable")
+		return
+	var before: PackedVector3Array = child.joints
+	if cyclic.solve_all():
+		failures += 1
+		print("FAIL solve_all accepted a dependency cycle")
+		return
+	if cyclic.get_last_error() == "":
+		failures += 1
+		print("FAIL a refused solve left no error to report")
+		return
+	if cyclic.get_last_statuses().size() != 0:
+		failures += 1
+		print("FAIL a refused solve still reported chain statuses")
+		return
+	if child.joints != before:
+		failures += 1
+		print("FAIL a refused solve moved a chain anyway")
+		return
+
+	# Removing a chain takes its edges with it, so a cycle cannot outlive it.
+	if not cyclic.remove_chain(child):
+		failures += 1
+		print("FAIL remove_chain did not find a chain the rig owns")
+		return
+	if not cyclic.has_valid_order():
+		failures += 1
+		print("FAIL edges to a removed chain survived and kept the cycle")
+		return
+	print("PASS rig solves in dependency order and feeds a child its parent's solved tip")
 
 func _check_scene() -> void:
 	var packed := load("res://fabrik_demo.tscn")
@@ -221,6 +413,8 @@ func _initialize() -> void:
 		_check_smoothing()
 	if failures == 0:
 		_check_pole_vector()
+	if failures == 0:
+		_check_rig_ordering()
 	if failures == 0:
 		_check_skeleton()
 	if failures != 0:
