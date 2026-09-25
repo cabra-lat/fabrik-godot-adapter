@@ -34,8 +34,10 @@ const THIGH := 0.44
 const SHIN := 0.42
 const SPINE_SEG := 0.22
 
-const BONE_COLOR := Color(0.86, 0.80, 0.70)
-const TARGET_COLOR := Color(0.95, 0.42, 0.35)
+const BONE_COLOR := Color(0.93, 0.80, 0.62)
+const JOINT_COLOR := Color(0.30, 0.72, 1.00)
+const BODY_COLOR := Color(0.42, 0.47, 0.55)
+const HEAD_COLOR := Color(0.93, 0.79, 0.68)
 
 ## One driven limb: a chain, its two targets, and the meshes that draw it.
 class Limb:
@@ -66,8 +68,10 @@ func _ready() -> void:
 
 	var shoulder_l := PELVIS + Vector3(-0.20, 0.40, 0)
 	var shoulder_r := PELVIS + Vector3(0.20, 0.40, 0)
-	var arm_l := _make_chain("ARM.L", shoulder_l, [UPPER_ARM, FOREARM], 0.45, true)
-	var arm_r := _make_chain("ARM.R", shoulder_r, [UPPER_ARM, FOREARM], 0.45, true)
+	# Smoothing is light: a heavy ease at 24 fps reads as a statue, and the
+	# point here is to SEE the solve, not to admire the easing.
+	var arm_l := _make_chain("ARM.L", shoulder_l, [UPPER_ARM, FOREARM], 0.25, true)
+	var arm_r := _make_chain("ARM.R", shoulder_r, [UPPER_ARM, FOREARM], 0.25, true)
 	var leg_l := _make_chain("LEG.L", PELVIS + Vector3(-0.10, 0.0, 0), [THIGH, SHIN], 0.5, false)
 	var leg_r := _make_chain("LEG.R", PELVIS + Vector3(0.10, 0.0, 0), [THIGH, SHIN], 0.5, false)
 
@@ -112,8 +116,8 @@ func _draw_limb(limb: Limb, lengths: Array) -> void:
 		limb.bones.append(mesh)
 	for i in lengths.size() + 1:
 		var joint_mesh := MeshInstance3D.new()
-		joint_mesh.mesh = _sphere(0.055)
-		joint_mesh.material_override = _material(Color(0.25, 0.55, 0.95))
+		joint_mesh.mesh = _sphere(0.065)
+		joint_mesh.material_override = _emissive(JOINT_COLOR)
 		add_child(joint_mesh)
 		limb.joints.append(joint_mesh)
 
@@ -132,9 +136,9 @@ func _build_skeleton() -> void:
 		var at: Vector3 = arm.root + Vector3(0.0, -0.30 * float(i), 0.0)
 		skeleton.add_bone(names[i])
 		skeleton.set_bone_rest(i, Transform3D(Basis(), at))
-	_bodies.append(_body("Pelvis", PELVIS, Vector3(0.26, 0.16, 0.18), Color(0.30, 0.33, 0.38)))
-	_bodies.append(_body("Chest", PELVIS + Vector3(0, 0.30, 0), Vector3(0.34, 0.34, 0.20), Color(0.26, 0.29, 0.34)))
-	_bodies.append(_body("Head", PELVIS + Vector3(0, 0.58, 0), Vector3(0.17, 0.20, 0.18), Color(0.85, 0.72, 0.62)))
+	_bodies.append(_body("Pelvis", PELVIS, Vector3(0.30, 0.20, 0.22), BODY_COLOR))
+	_bodies.append(_body("Chest", PELVIS + Vector3(0, 0.30, 0), Vector3(0.40, 0.36, 0.24), BODY_COLOR))
+	_bodies.append(_body("Head", PELVIS + Vector3(0, 0.60, 0), Vector3(0.20, 0.23, 0.21), HEAD_COLOR))
 
 func _body(name: String, at: Vector3, size: Vector3, color: Color) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
@@ -176,33 +180,38 @@ func _build_world() -> void:
 	light.light_energy = 1.15
 	add_child(light)
 
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(28.0, 140.0, 0.0)
+	fill.light_energy = 0.45
+	add_child(fill)
+
+	# Frame the whole figure with room around it: a tight crop reads as a blob.
 	var camera := Camera3D.new()
-	camera.position = Vector3(0.0, 1.5, 3.1)
-	camera.fov = 58.0
-	camera.look_at_from_position(camera.position, Vector3(0.0, 1.05, 0.0), Vector3.UP)
+	camera.position = Vector3(0.0, 1.45, 3.6)
+	camera.fov = 55.0
+	camera.look_at_from_position(camera.position, Vector3(0.0, 0.95, 0.0), Vector3.UP)
 	add_child(camera)
 
 	var floor_mesh := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(9.0, 9.0)
+	plane.size = Vector2(14.0, 14.0)
 	floor_mesh.mesh = plane
-	floor_mesh.material_override = _material(Color(0.17, 0.18, 0.20))
+	floor_mesh.material_override = _material(Color(0.10, 0.11, 0.13))
 	add_child(floor_mesh)
 
 	# Reach rings make "out of reach" visible instead of something the viewer has
-	# to infer from a straightened arm.
-	var ring := MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.56
-	torus.outer_radius = 0.58
-	torus.rings = 48
-	torus.ring_segments = 8
-	ring.mesh = torus
-	var ring_mat := _material(Color(0.30, 0.75, 0.55, 0.55))
-	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	ring.material_override = ring_mat
-	ring.position = PELVIS
-	add_child(ring)
+	# to infer from a straightened arm. One ring per arm, at shoulder height.
+	for side in [-1.0, 1.0]:
+		var ring := MeshInstance3D.new()
+		var torus := TorusMesh.new()
+		torus.inner_radius = UPPER_ARM + FOREARM - 0.01
+		torus.outer_radius = UPPER_ARM + FOREARM
+		torus.rings = 64
+		torus.ring_segments = 8
+		ring.mesh = torus
+		ring.material_override = _emissive(Color(0.25, 0.85, 0.55, 0.75))
+		ring.position = PELVIS + Vector3(0.20 * side, 0.40, 0.0)
+		add_child(ring)
 
 func _build_overlay() -> void:
 	var layer := CanvasLayer.new()
@@ -219,6 +228,13 @@ func _material(color: Color) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.roughness = 0.75
+	return mat
+
+func _emissive(color: Color) -> StandardMaterial3D:
+	var mat := _material(color)
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 0.9
 	return mat
 
 func _capsule(radius: float, height: float) -> CapsuleMesh:
@@ -243,36 +259,42 @@ func _process(delta: float) -> void:
 	_solve_once()
 	_update_overlay()
 
-## Targets deliberately cross the reach boundary. The arm orbit radius is 0.72
-## against an arm reach of 0.58, so roughly a third of every orbit is out of
-## reach - the solver has to handle both regimes, every cycle.
+## Targets sweep FAR past the reach boundary. The first version of this demo
+## moved them by a few centimetres, which rendered as a figure standing still -
+## the arms never left a 0.58 m sphere, so there was nothing to see. Amplitudes
+## here are deliberately several times the reach, so the body visibly lunges,
+## over-reaches and recovers.
 func _drive_targets() -> void:
 	var t := elapsed
 
-	var look := Vector3(sin(t * 0.7) * 0.9, 1.45 + sin(t * 0.5) * 0.25, -1.5)
-	_spine.chain.target = look
+	# Torso leans towards a look target that stays INSIDE the spine's 0.51 m
+	# reach. The first version aimed ~0.86 m away, so the spine reported
+	# UNREACHABLE on 120/120 frames: the torso was permanently locked pointing at
+	# a target it could never touch, and the figure read as a mannequin.
+	_spine.chain.target = Vector3(sin(t * 0.6) * 0.22, 1.22 + sin(t * 0.45) * 0.18, -0.28)
+	_head.chain.target = Vector3(sin(t * 0.6) * 0.09, 1.54 + sin(t * 0.8) * 0.08, -0.13)
 
-	var head := Vector3(sin(t * 0.7) * 0.55, 1.62 + sin(t * 0.9) * 0.12, -0.85)
-	_head.chain.target = head
-
-	# Grips: a two-handed hold that orbits past arm reach and swings in depth.
-	var grip := Vector3(
-		sin(t * 0.8) * 0.42,
-		1.18 + sin(t * 1.1) * 0.10,
-		-0.62 + cos(t * 0.8) * 0.30)
+	# Grips ride a radius that oscillates ACROSS the 0.58 m arm reach, so the arms
+	# alternate between reaching and over-reaching. Pinning the target inside the
+	# reach sphere would make the demo exercise only the easy case; swinging it
+	# well outside would leave the arms permanently straight.
+	var shoulder_mid := PELVIS + Vector3(0.0, 0.40, 0.0)
+	var radius := 0.46 + 0.26 * sin(t * 0.8)
+	var direction := Vector3(sin(t * 0.5) * 0.45, -0.12 + sin(t * 0.9) * 0.30, -1.0).normalized()
+	var grip := shoulder_mid + direction * radius
 	var arm_l: Limb = _limbs[0]
 	var arm_r: Limb = _limbs[1]
-	arm_l.chain.target = grip + Vector3(-0.20, 0.0, 0.0)
-	arm_r.chain.target = grip + Vector3(0.20, 0.0, 0.0)
+	arm_l.chain.target = grip + Vector3(-0.22, 0.0, 0.0)
+	arm_r.chain.target = grip + Vector3(0.22, 0.0, 0.0)
 	arm_l.target = arm_l.chain.target
 	arm_r.target = arm_r.chain.target
 
-	# Stance: feet slide across the floor and one foot lifts out of reach.
-	var step := sin(t * 0.9)
+	# Stride: feet travel forward and back across a real step length, and lift.
+	var stride := sin(t * 1.1)
 	var leg_l: Limb = _limbs[2]
 	var leg_r: Limb = _limbs[3]
-	leg_l.chain.target = Vector3(-0.18 + step * 0.16, maxf(0.0, 0.10 + step * 0.22), 0.10)
-	leg_r.chain.target = Vector3(0.18 - step * 0.16, maxf(0.0, 0.10 - step * 0.22), -0.06)
+	leg_l.chain.target = Vector3(-0.16, maxf(0.02, 0.14 + stride * 0.26), 0.30 * stride)
+	leg_r.chain.target = Vector3(0.16, maxf(0.02, 0.14 - stride * 0.26), -0.30 * stride)
 	leg_l.target = leg_l.chain.target
 	leg_r.target = leg_r.chain.target
 

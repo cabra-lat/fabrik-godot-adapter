@@ -17,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       FABRIK_CORE_REPOSITORY: cabra-lat/fabrik-fortran
-      FABRIK_CORE_REF: a09dcc03ca74c35f9f090f4cf332e3ad7bd657f6
+      FABRIK_CORE_REF: c9c789ac7026630edcc67a409db11549727b4648
       # godot-cpp 4.4-stable ships no CMake install/export rules, so there is no
       # find_package() target to cache. ccache is the cache that works with the
       # add_subdirectory() flow, and the key is pinned to the godot-cpp commit.

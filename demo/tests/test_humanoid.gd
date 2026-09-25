@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_reach_transition(demo)
 	_smoothing_stretches_nothing(demo)
 	_segments_never_stretch(demo)
+	_anchored_roots_never_drift(demo)
 	_pose_skeleton_matches(demo)
 	_finish()
 
@@ -140,6 +141,34 @@ func _smoothing_stretches_nothing(demo: Node) -> void:
 		_fail("smoothed chain did not settle fully extended: tip gap " + str(last))
 		return
 	print("PASS smoothing eases a chain without stretching any bone, and settles fully extended")
+
+## An anchored chain must keep its root exactly where it was given.
+##
+## This is the assertion that would have caught the core bug: the solver measured
+## each backward-pass joint against the target instead of the joint behind it and
+## never re-pinned the root, so an anchored chain crept towards its target - the
+## demo's arms visibly detached from the shoulders while `root_anchored` still
+## reported true. Driving the demo's REAL motion, not synthetic targets, because
+## the synthetic case did not reproduce it.
+func _anchored_roots_never_drift(demo: Node) -> void:
+	var worst := 0.0
+	var worst_label := ""
+	var chains: Array = [demo.get("_spine"), demo.get("_head")]
+	for limb in demo.get("_limbs"):
+		chains.append(limb)
+	for entry in chains:
+		var chain: FabrikChain3D = entry.chain
+		var declared_root: Vector3 = entry.root
+		for i in 90:
+			demo.call("_process", 1.0 / 24.0)
+			var drift: float = chain.joints[0].distance_to(declared_root)
+			if drift > worst:
+				worst = drift
+				worst_label = entry.label
+	if worst > 1.0e-4:
+		_fail("anchored root drifted on " + worst_label + ": " + str(worst) + " m")
+		return
+	print("PASS anchored roots never drift over 90 frames of real motion")
 
 ## Bones that stretch are a rig lying about its own skeleton.
 func _segments_never_stretch(demo: Node) -> void:
