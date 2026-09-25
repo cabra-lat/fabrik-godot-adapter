@@ -58,13 +58,18 @@ var _spine: Limb
 var _head: Limb
 var _label: Label
 var _bodies: Array[MeshInstance3D] = []
+var _camera: Camera3D
 
 func _ready() -> void:
 	_build_world()
 	_build_overlay()
 
-	_spine = _make_chain("SPINE", PELVIS, [SPINE_SEG, 0.20, 0.09], 0.0, true)
-	_head = _make_chain("HEAD", PELVIS + Vector3(0, 0.50, 0), [0.12, 0.10], 0.55, true)
+	# Torso and head chains still solve and are covered by the body proxies, but
+	# their debug bones are not drawn. The spine target is intentionally behind
+	# the torso; rendering its beige debug bones through the body would look like
+	# an accidental appendage on the belly.
+	_spine = _make_chain("SPINE", PELVIS, [SPINE_SEG, 0.20, 0.09], 0.0, false)
+	_head = _make_chain("HEAD", PELVIS + Vector3(0, 0.50, 0), [0.12, 0.10], 0.55, false)
 
 	var shoulder_l := PELVIS + Vector3(-0.20, 0.40, 0)
 	var shoulder_r := PELVIS + Vector3(0.20, 0.40, 0)
@@ -72,8 +77,8 @@ func _ready() -> void:
 	# point here is to SEE the solve, not to admire the easing.
 	var arm_l := _make_chain("ARM.L", shoulder_l, [UPPER_ARM, FOREARM], 0.25, true)
 	var arm_r := _make_chain("ARM.R", shoulder_r, [UPPER_ARM, FOREARM], 0.25, true)
-	var leg_l := _make_chain("LEG.L", PELVIS + Vector3(-0.10, 0.0, 0), [THIGH, SHIN], 0.5, false)
-	var leg_r := _make_chain("LEG.R", PELVIS + Vector3(0.10, 0.0, 0), [THIGH, SHIN], 0.5, false)
+	var leg_l := _make_chain("LEG.L", PELVIS + Vector3(-0.10, 0.0, 0), [THIGH, SHIN], 0.5, true)
+	var leg_r := _make_chain("LEG.R", PELVIS + Vector3(0.10, 0.0, 0), [THIGH, SHIN], 0.5, true)
 
 	_limbs = [arm_l, arm_r, leg_l, leg_r]
 	_build_skeleton()
@@ -186,11 +191,10 @@ func _build_world() -> void:
 	add_child(fill)
 
 	# Frame the whole figure with room around it: a tight crop reads as a blob.
-	var camera := Camera3D.new()
-	camera.position = Vector3(0.0, 1.45, 3.6)
-	camera.fov = 55.0
-	camera.look_at_from_position(camera.position, Vector3(0.0, 0.95, 0.0), Vector3.UP)
-	add_child(camera)
+	_camera = Camera3D.new()
+	_camera.fov = 55.0
+	add_child(_camera)
+	_update_camera()
 
 	var floor_mesh := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
@@ -257,6 +261,7 @@ func _process(delta: float) -> void:
 	elapsed += delta
 	_drive_targets()
 	_solve_once()
+	_update_camera()
 	_update_overlay()
 
 ## Targets sweep FAR past the reach boundary. The first version of this demo
@@ -306,6 +311,17 @@ func _drive_targets() -> void:
 func _solve_once() -> void:
 	for limb: Limb in [_spine, _head] + _limbs:
 		limb.chain.solve()
+
+## Slowly orbit the camera around the figure so the movie shows the solver from
+## more than one angle. The camera is deterministic: elapsed is advanced by the
+## render runner at exactly 24 FPS, so repeated renders produce the same path.
+func _update_camera() -> void:
+	if _camera == null:
+		return
+	var angle := elapsed * 0.35
+	var focus := Vector3(0.0, 0.95, 0.0)
+	_camera.position = focus + Vector3(sin(angle) * 3.6, 0.50, cos(angle) * 3.6)
+	_camera.look_at(focus, Vector3.UP)
 
 func _update_overlay() -> void:
 	var lines := PackedStringArray()

@@ -68,6 +68,21 @@ godot --path demo res://visual_demo.tscn
 Bones and joints are `MultiMesh` instances, so the chain costs two draw calls
 and is posed directly from the rotations the adapter derives.
 
+## Rendered humanoid demo
+
+The humanoid demo solves six chains at once, drives the arm and leg targets
+across their reach limits, and slowly circles the camera. The MP4 is published
+as a GitHub Release asset rather than committed to this source repository:
+
+<video controls src="https://github.com/cabra-lat/fabrik-godot-adapter/releases/download/demo-v1/fabrik-humanoid-fixed-v4.mp4" width="640">
+  Your browser does not support the embedded video.
+</video>
+
+[Download the MP4](https://github.com/cabra-lat/fabrik-godot-adapter/releases/download/demo-v1/fabrik-humanoid-fixed-v4.mp4)
+
+The render is 1280×720, 24 FPS, 144 frames, and reproducible from the fixed
+24 FPS scene runner.
+
 ## Godot scene test
 
 After building, copy the freshly built library into the descriptor's `bin/`
@@ -112,6 +127,12 @@ success and unreachable statuses.
 - A `solve_finished(status, residual)` signal fires on a successful solve.
 - The solver returns stable status integers: `0` success, `1` invalid input,
   `2` unreachable, `3` not converged, `4` degenerate chain.
+- A chain with a single segment cannot reach an arbitrary point inside its
+  reach sphere; it correctly reports `NOT_CONVERGED` rather than claiming a
+  solution. Multi-segment chains are the intended use.
+- Stress measurements on the tested host: anchored root drift is exactly zero
+  through 4096-joint chains, segment-length error stays below `2e-5` m at that
+  size, and a 100,000-joint solve takes about 44 ms.
 - The core is a single-chain FABRIK implementation. Full-body graph ordering,
   closed loops, pole-vector constraints, collision, and runtime scene ownership
   are deliberately outside this prototype.
