@@ -113,8 +113,20 @@ jobs:
               bin_471="Godot_v4.7.1-stable_win64.exe"
               ;;
           esac
+          # Do not duplicate the build-system's output path here: locate the
+          # library wherever CMake put it, and print the truth before failing so
+          # a wrong assumption is never mistaken for a missing build.
+          echo "--- build/bin:"
+          ls -l build/bin 2>&1 || true
+          src="$(find build -name "$lib" -type f | head -1)"
+          if [ -z "$src" ]; then
+            echo "could not find $lib under build/; candidates:"
+            find build -name "*.dll" -o -name "*.so" -o -name "*.dylib" | head -20
+            exit 1
+          fi
+          echo "using $src"
           mkdir -p demo/bin
-          cp "build/bin/$lib" "demo/bin/$lib"
+          cp "$src" "demo/bin/$lib"
           ls -l demo/bin
           # GNU timeout does not exist on macOS runners, so install coreutils for
           # gtimeout and keep the hang guard active everywhere. If neither binary
