@@ -82,7 +82,10 @@ int32_t FabrikChain3D::solve() {
     std::vector<Quaternion> previous_rotations;
     previous_rotations.reserve(static_cast<size_t>(count));
     for (int32_t i = 0; i < last_rotations.size(); ++i) {
-        previous_rotations.push_back(last_rotations[i]);
+        // TypedArray::operator[] hands back a Variant, so read it into a typed
+        // local before calling members on it.
+        const Quaternion previous_rotation = last_rotations[i];
+        previous_rotations.push_back(previous_rotation);
     }
 
     std::vector<float> coordinates;
@@ -130,7 +133,8 @@ int32_t FabrikChain3D::solve() {
     if (smoothing > 0.0f && previous_rotations.size() == static_cast<size_t>(count) && count >= 2) {
         const float t = 1.0f - smoothing;
         for (int32_t i = 0; i < count; ++i) {
-            const Quaternion eased = previous_rotations[i].slerp(last_rotations[i], t);
+            const Quaternion target_rotation = last_rotations[i];
+            const Quaternion eased = previous_rotations[static_cast<size_t>(i)].slerp(target_rotation, t);
             last_rotations.set(i, eased);
         }
         // Forward kinematics from the current root: the root never moves here,
@@ -150,7 +154,8 @@ int32_t FabrikChain3D::solve() {
                 continue;
             }
             // The bone convention is local +Y, the same one pose_skeleton uses.
-            const Vector3 direction = last_rotations[i].xform(Vector3(0, 1, 0));
+            const Quaternion rotation = last_rotations[i];
+            const Vector3 direction = rotation.xform(Vector3(0, 1, 0));
             joints.set(i + 1, joints[i] + direction * length);
         }
         _update_rotations();
