@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # The core dependency and the godot-cpp pin are deliberate, reviewed pins.
+  # Dependabot may propose bumps; a human decides, and flake.lock plus the CI
+  # pin must be updated in the same commit.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    # godot-cpp is checked out by commit, not by module version.
+    open-pull-requests-limit: 0
