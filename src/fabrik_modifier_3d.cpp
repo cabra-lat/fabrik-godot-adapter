@@ -154,15 +154,18 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
         const Transform3D before = snapshot_global[bone];
         Transform3D after(before.basis, solved[solved_index]);
         // The bone's child in the chain is one step towards the leaf, i.e. the
-        // previous entry in the leaf-first list.
+        // previous entry in the leaf-first list. In `solved` (root-first) that
+        // child is at solved_index + 1 - which is why the leaf, at
+        // solved_index == count - 1, has no child and is skipped: indexing
+        // solved_index - 1 here reads solved[-1] for the root and crashes.
         const int32_t child = i > 0 ? r_bones[i - 1] : -1;
-        if (child >= 0) {
+        if (child >= 0 && solved_index + 1 < solved.size()) {
             // Rotate the bone by the smallest turn that carries its current
             // direction onto the solved one. Rotating the existing basis (rather
             // than building one from +Y) keeps the bone's own axes and its twist,
             // and needs no assumption about how the bone was authored.
             const Vector3 current_dir = before.origin.direction_to(snapshot_global[child].origin);
-            const Vector3 solved_dir = solved[solved_index].direction_to(solved[solved_index - 1]);
+            const Vector3 solved_dir = solved[solved_index].direction_to(solved[solved_index + 1]);
             if (current_dir.length() > kMinDirection && solved_dir.length() > kMinDirection) {
                 after.basis = Basis(Quaternion(current_dir, solved_dir)) * before.basis;
             }
