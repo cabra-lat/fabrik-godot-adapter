@@ -140,10 +140,8 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
     // eases the solve in and a ramp to 0 lets the skeleton fall back to
     // whatever the rest of the pipeline produced.
     const float influence = get_influence() * p_effector->get_influence();
-    // NEGATIVE CONTROL B: the effector's world position is used where the
-    // skeleton's local space is required. Correct only while the skeleton sits
-    // at the origin, so the suite must catch it.
-    Vector3 goal = p_effector->get_global_position();
+    // NEGATIVE CONTROL B reverted.
+    Vector3 goal = p_skeleton->to_local(p_effector->get_global_position());
     const Vector3 current_tip = joints[count - 1];
     if (influence < 1.0f) {
         goal = current_tip.lerp(goal, influence);
@@ -242,9 +240,11 @@ void FabrikModifier3D::_write_chain(const PackedInt32Array &r_bones, FabrikEffec
     // and `_write_pose` reads the parent's *new* transform, so the parent has to
     // be in place first. Measured: writing leaf-first leaves every bone off by
     // the parent's own delta.
-    for (int32_t i = count - 1; i >= 0; --i) {
+    // NEGATIVE CONTROL C: poses are written leaf-first, so each child is
+    // computed against a parent transform that has not been written yet.
+    for (int32_t i = 0; i < count; ++i) {
         const int32_t bone = r_bones[i];
-        if (i == 0 && p_mode == FabrikEffector::STRAIGHTEN_CHAIN) {
+        if (i == count - 1 && p_mode == FabrikEffector::STRAIGHTEN_CHAIN) {
             // No rotation of its own in the pose, so the chain's last segment
             // continues the parent bone's direction. Written here rather than at
             // solve time because it replaces the pose, and the pose is only
