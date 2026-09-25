@@ -133,6 +133,23 @@ jobs:
             exit 1
           fi
           echo "using $src"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # A MinGW build imports libgfortran-5.dll, and -static-libgfortran is
+            # best-effort: it does nothing on a toolchain that ships no
+            # libgfortran.a. Ship the runtime next to the extension instead, and
+            # ask the compiler where its own runtime lives rather than guessing a
+            # path. The import table printed above is the source of truth for
+            # which of these are actually needed.
+            for rt in libgfortran-5.dll libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll; do
+              origin="$(gfortran -print-file-name=$rt 2>/dev/null || true)"
+              if [ -f "$origin" ]; then
+                echo "  runtime $rt <- $origin"
+                cp "$origin" "demo/bin/$rt"
+              else
+                echo "  runtime $rt: not provided by this toolchain (skipped)"
+              fi
+            done
+          fi
           # Print what the library imports. A Windows "Error 126" is otherwise
           # silent about the DLL that is missing, and that is the whole diagnosis.
           if command -v objdump >/dev/null 2>&1; then
@@ -198,7 +215,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fabrik-adapter-${{ matrix.os }}
-          path: build/bin/
+          # demo/bin/ rather than build/bin/: it is the loadable bundle, with the
+          # descriptor and any required runtime DLLs already beside the library.
+          path: demo/bin/
           if-no-files-found: error
       - name: Save godot-cpp build cache
         if: always()

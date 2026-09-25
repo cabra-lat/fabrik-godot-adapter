@@ -5,16 +5,17 @@
 ## demo is stepped by a fixed delta, so the output is reproducible.
 ##
 ## Usage (from the repository root):
-##   godot --path demo --script res://tests/render_frames.gd -- <out_dir> [frames]
+##   godot --path demo --script res://tests/render_frames.gd -- <out_dir> [frames] [scene]
 ##
 ## Needs a real GL context: a headless run has no viewport image to grab.
 extends SceneTree
 
-const SCENE := "res://visual_demo.tscn"
+const DEFAULT_SCENE := "res://visual_demo.tscn"
 const DEFAULT_OUT := "user://frames"
 const DEFAULT_FRAMES := 96
 const FPS := 24
 
+var _scene_path := DEFAULT_SCENE
 var _out_dir := DEFAULT_OUT
 var _frames := DEFAULT_FRAMES
 var _written := 0
@@ -29,11 +30,13 @@ func _initialize() -> void:
 		_out_dir = args[0]
 	if args.size() >= 2:
 		_frames = maxi(1, int(args[1]))
+	if args.size() >= 3:
+		_scene_path = args[2]
 	DirAccess.make_dir_recursive_absolute(_out_dir)
-	print("render: ", _frames, " frames -> ", ProjectSettings.globalize_path(_out_dir))
-	var packed: PackedScene = load(SCENE)
+	print("render: ", _frames, " frames of ", _scene_path, " -> ", ProjectSettings.globalize_path(_out_dir))
+	var packed: PackedScene = load(_scene_path)
 	if packed == null:
-		printerr("render: could not load ", SCENE)
+		printerr("render: could not load ", _scene_path)
 		quit(1)
 		return
 	_scene = packed.instantiate()

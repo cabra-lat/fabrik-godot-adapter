@@ -31,6 +31,29 @@ The adapter workflow checks out the published
 `.github/workflows/ci.yml`, so the separate core dependency cannot silently
 drift.
 
+## Runtime dependencies
+
+The extension links the Fortran core, so it inherits the Fortran runtime:
+
+| Platform | Dependency | Notes |
+| --- | --- | --- |
+| Linux | `libgfortran.so.5` | Must be on the loader path. A missing one surfaces only as `Can't open dynamic library: ... libgfortran.so.5`, not as anything mentioning Fortran. |
+| macOS | system libgfortran | Present on GitHub runners and on any normal developer machine. |
+| Windows | `libgfortran-5.dll`, shipped beside the DLL | A MinGW build imports it, and `-static-libgfortran` is best-effort - it does nothing on a toolchain with no `libgfortran.a`, which is the case on the CI runner. CI copies the runtime next to the extension and uploads the whole `demo/bin/` bundle. |
+
+To reproduce a Linux run outside CI, point the loader at a toolchain that
+provides it, for example:
+
+```sh
+LD_LIBRARY_PATH=/path/to/gfortran/lib godot --path demo --script res://tests/test_godot_scene.gd
+```
+
+A missing dependency on Windows surfaces only as
+`Error 126: The specified module could not be found`, which names no DLL at
+all. So CI prints the library's import table with `objdump` before the runtime
+check: that is what identified `libgfortran-5.dll` as the cause, and it makes
+any future load failure diagnosable from the log instead of guesswork.
+
 ## Visual demo
 
 `demo/visual_demo.tscn` is a self-contained scene - one script, geometry built

@@ -92,7 +92,13 @@ endif()
 # toolchain runtime DLLs dropped next to it. A MinGW build otherwise imports
 # libgfortran-5.dll and libgcc_s_seh-1.dll, and Windows then fails the load
 # with a bare "Error 126: The specified module could not be found" - which says
-# nothing about the missing dependency. Link the GCC runtime statically.
+# nothing about the missing dependency.
+#
+# BEST EFFORT, and proven to be so: a MinGW toolchain that ships no
+# libgfortran.a silently ignores these flags and the DLL still imports
+# libgfortran-5.dll. That is not hypothetical - CI hit exactly that. So CI
+# prints the import table and ships the runtime beside the extension instead
+# of trusting this line to have worked.
 if(MINGW)
   target_link_options(fabrik_adapter PRIVATE -static-libgfortran -static-libgcc)
 endif()
