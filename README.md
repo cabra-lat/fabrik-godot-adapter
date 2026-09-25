@@ -71,12 +71,19 @@ and is posed directly from the rotations the adapter derives.
 ## Rendered humanoid demo
 
 The humanoid demo solves six chains at once, drives the arm and leg targets
-across their reach limits, and slowly circles the camera. The MP4 is published
-as a GitHub Release asset rather than committed to this source repository:
+across their reach limits, and slowly circles the camera. The clip is uploaded
+through GitHub's own attachment flow, so it plays inline here; the same file is
+also published as a Release asset, and neither is committed to this source-only
+repository:
 
-<video src='https://github.com/cabra-lat/fabrik-godot-adapter/releases/download/demo-v1/fabrik-humanoid-fixed-v4.mp4' width='640'/>
+<video src='https://github.com/user-attachments/assets/93853f53-15ba-4f92-b1c1-5017ee2a5f64' width='640'/>
 
-[Download the MP4](https://github.com/cabra-lat/fabrik-godot-adapter/releases/download/demo-v1/fabrik-humanoid-fixed-v4.mp4)
+[Download the MP4 (Release asset)](https://github.com/cabra-lat/fabrik-godot-adapter/releases/download/demo-v1/fabrik-humanoid-fixed-v4.mp4)
+
+The inline copy lives on the attachment carrier issue
+[#3](https://github.com/cabra-lat/fabrik-godot-adapter/issues/3); GitHub serves
+both copies byte-identically
+(`sha256 29e527f6951d0874163739a257d7f8b07dc1f1a5f6bccf3447cdbec66db780a6`).
 
 The render is 1280×720, 24 FPS, 144 frames, and reproducible from the fixed
 24 FPS scene runner.
