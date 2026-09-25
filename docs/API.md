@@ -138,12 +138,25 @@ relaxed. Collision and scene-tree ownership are out of scope too.
 
 ## References
 
+Bibliographic metadata below was verified through DOI content negotiation
+(Crossref), not from the papers themselves; only the abstract is quoted, not
+the full text.
+
 - R. Aristidou, N. Chr. Chrysanthou, J. Lasenby, *Extending FABRIK with model
-  constraints*, Journal of Computer Animation Technology 1(1), 2011 — the
-  original treatment of joint and model constraints on top of FABRIK.
+  constraints*, Computer Animation and Virtual Worlds 27(1), 2015, pp. 35-57,
+  <https://doi.org/10.1002/cav.1630>. Its abstract states that the paper extends
+  or adjusts FABRIK "to be used in problems with leaf joints and closed-loop
+  chains", to "control a fixed inter-joint distance", and that it "present[s]
+  various techniques for constraining anthropometric and robotic joint models
+  using FABRIK". Joint angle limits are the constraint this adapter implements
+  in post-solve form; the paper's own constrained solvers are not reproduced
+  here.
 - A. Aristidou, J. Lasenby, *FABRIK: A fast, iterative solver for the Inverse
-  Kinematics problem*, IEEE Transactions on Visualization and Computer Graphics
-  17(5), 2011.
+  Kinematics problem*, Graphical Models 73(5), 2011, pp. 243-260,
+  <https://doi.org/10.1016/j.gmod.2011.05.003>.
+
+The core repository (`cabra-lat/fabrik-fortran`, `docs/ALGORITHM.md`) carries the
+wider reference list, including the closed-loop and convergence literature.
 
 ## Smoothing
 
