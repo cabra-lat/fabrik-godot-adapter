@@ -17,21 +17,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       FABRIK_CORE_REPOSITORY: cabra-lat/fabrik-fortran
-      FABRIK_CORE_REF: d63bed9067952dc758b00a0cfabe955dff9f2d41
+      FABRIK_CORE_REF: e5e6ade6984648e5b7df630307a451d781cd28c1
     steps:
       - uses: actions/checkout@v4
       - name: Check out standalone core
         uses: actions/checkout@v4
         with:
           repository: cabra-lat/fabrik-fortran
-          ref: d63bed9067952dc758b00a0cfabe955dff9f2d41
+          ref: e5e6ade6984648e5b7df630307a451d781cd28c1
           path: core
       - uses: fortran-lang/setup-fortran@v1
         with:
           compiler: gcc
       - uses: fortran-lang/setup-fpm@v10
         with:
-          fpm-version: "0.13.0"
+          fpm-version: "v0.13.0"
       - name: Build and test core
         working-directory: core
         run: |
