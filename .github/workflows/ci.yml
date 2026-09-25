@@ -47,6 +47,7 @@ jobs:
           ref: 714c9e2c165db2dcb7e6ea57e62a04204d3cfbfa
           path: godot-cpp
       - name: Configure adapter
+        shell: bash
         run: >
           cmake -S . -B build -G Ninja
           -DFABRIK_CORE_ROOT="$RUNNER_TEMP/fabrik-core"
@@ -54,6 +55,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=g++
       - name: Build adapter and C ABI smoke test
+        shell: bash
         run: |
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure
