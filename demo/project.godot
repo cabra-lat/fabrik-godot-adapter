@@ -1,0 +1,14 @@
+; Minimal standalone project for the adapter demo. It intentionally lives in
+; demo/ rather than the repository root: a project at the root would make the
+; engine walk build/, core/ and godot-cpp/ on every filesystem scan.
+[application]
+config/name="FABRIK Godot Adapter Demo"
+config/features=PackedStringArray("4.4")
+run/main_scene="res://fabrik_demo.tscn"
+
+[native_extensions]
+paths=["res://bin/fabrik_adapter.gdextension"]
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

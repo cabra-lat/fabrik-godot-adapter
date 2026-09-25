@@ -95,9 +95,19 @@ jobs:
           unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
           godot_bin=$(find "$RUNNER_TEMP/godot" -type f -name 'Godot_v4.4.1-stable_linux.x86_64' -print -quit)
           chmod +x "$godot_bin"
-          mkdir -p bin
-          cp build/bin/libfabrik_adapter.so bin/libfabrik_adapter.so
-          "$godot_bin" --headless --path . --script res://tests/test_godot_scene.gd
+          echo "godot binary: $godot_bin"
+          "$godot_bin" --version
+          mkdir -p demo/bin
+          cp build/bin/libfabrik_adapter.so demo/bin/libfabrik_adapter.so
+          ls -l demo/bin
+          # The demo project lives in demo/ so the engine never walks build/,
+          # core/ or godot-cpp/ during its filesystem scan. A bare --script run
+          # on an unimported project does not register .gdextension files, so
+          # import once first, under a timeout so a hang can never pass silently.
+          timeout 300 "$godot_bin" --headless --path demo --import --verbose \
+            2>&1 | tee "$RUNNER_TEMP/godot-import.log"
+          timeout 300 "$godot_bin" --headless --path demo --verbose \
+            --script res://tests/test_godot_scene.gd 2>&1 | tee "$RUNNER_TEMP/godot-scene.log"
       - name: Save godot-cpp build cache
         if: always()
         uses: actions/cache/save@v4

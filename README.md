@@ -37,9 +37,20 @@ After building, copy the freshly built library into the descriptor's `bin/`
 location, then run:
 
 ```sh
-cp build/bin/libfabrik_adapter.so bin/libfabrik_adapter.so
-godot --headless --path . --script res://tests/test_godot_scene.gd
+mkdir -p demo/bin
+cp build/bin/libfabrik_adapter.so demo/bin/libfabrik_adapter.so
+# Import once: a bare --script run on an unimported project never registers
+# .gdextension files, so the class would silently be "not declared".
+godot --headless --path demo --import
+godot --headless --path demo --script res://tests/test_godot_scene.gd
 ```
+
+The Godot project lives in `demo/`, not at the repository root. A root-level
+project would make the engine's filesystem scan walk `build/`, `core/` and
+`godot-cpp/` (thousands of object files) on every start. The test script prints
+the engine version, whether `FabrikChain3D` is registered, the contents of the
+`.gdextension` descriptor, and the engine's loaded-extension list before it
+asserts anything, so a failure identifies itself.
 
 The demo scene instantiates the registered `FabrikChain3D` RefCounted class and
 solves a three-joint chain. The C++ smoke test separately exercises the C ABI's
