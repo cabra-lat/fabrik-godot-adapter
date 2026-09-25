@@ -90,8 +90,14 @@ private:
     // short to bend).
     PackedInt32Array _build_bone_chain(const FabrikEffector *p_effector, Skeleton3D *p_skeleton) const;
     // Fills `new_global` for one chain. Returns the core's status code and
-    // reports the chain's residual through `r_residual`.
+    // reports the chain's residual through `r_residual`. Writes nothing to the
+    // skeleton: see _write_chain.
     int32_t _solve_chain(const FabrikEffector *p_effector, Skeleton3D *p_skeleton, const PackedInt32Array &r_bones, float &r_residual);
+    // Applies `new_global` to the skeleton for one chain, root first. A bone's
+    // pose is its global transform relative to its parent's, so a parent that is
+    // about to move must be written first - writing leaf-first silently lands
+    // every bone relative to a transform that is then changed under it.
+    void _write_chain(const PackedInt32Array &r_bones, FabrikEffector::TransformMode p_mode, Skeleton3D *p_skeleton);
     void _ensure_capacity(int32_t p_bone_count);
     Transform3D _current_global(int32_t p_bone, Skeleton3D *p_skeleton) const;
     void _write_pose(int32_t p_bone, const Transform3D &p_global, Skeleton3D *p_skeleton);

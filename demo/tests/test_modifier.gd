@@ -50,6 +50,11 @@ func _finish() -> void:
 ## segments, so the chain can actually bend. A one-segment chain cannot: any
 ## goal off the segment is unreachable, which would make every assertion here a
 ## test of the unreachable path instead of the solve.
+##
+## Rest transforms are PARENT-relative, which was measured, not assumed: a rest
+## of (0, i, 0) on every bone puts bone 3 at y=6, a rest of (0, 1, 0) puts it at
+## y=3. The first version of this fixture used the wrong one and every assertion
+## below failed on the numbers.
 func _make_skeleton(skeleton_position: Vector3 = Vector3.ZERO) -> Skeleton3D:
 	var skeleton := Skeleton3D.new()
 	skeleton.position = skeleton_position
@@ -58,7 +63,7 @@ func _make_skeleton(skeleton_position: Vector3 = Vector3.ZERO) -> Skeleton3D:
 		skeleton.add_bone(["root", "upper", "lower", "tip"][i])
 		if i > 0:
 			skeleton.set_bone_parent(i, i - 1)
-		skeleton.set_bone_rest(i, Transform3D(Basis(), Vector3(0, i, 0)))
+			skeleton.set_bone_rest(i, Transform3D(Basis(), Vector3(0, 1, 0)))
 	skeleton.reset_bone_poses()
 	return skeleton
 
@@ -166,31 +171,38 @@ func _influence_blends() -> void:
 func _skeleton_transform_does_not_matter() -> void:
 	# The same skeleton at the origin and translated must solve to the same
 	# skeleton-local pose. This is the space-conversion claim, so it is measured
-	# rather than asserted: an effector at a world position near a moved
-	# skeleton would otherwise drag the chain towards the world origin.
+	# rather than asserted.
+	#
+	# The subtlety that makes this test worth having: get_bone_global_pose()
+	# reports SKELETON-LOCAL coordinates, not world. With the skeleton at
+	# (10,20,30) a bone at skeleton-local (0,1,0) still reports (0,1,0). So the
+	# skeleton's transform has to be applied by hand to get a world position, and
+	# a solver that forgot to_local() would pass this test by accident - which is
+	# why the world position is checked as well as the local one.
 	var goal := Vector3(1.2, 0.6, 0.7)
-	var poses: Array[Transform3D] = []
+	var locals: Array[Vector3] = []
 	for offset in [Vector3.ZERO, Vector3(10, 20, 30), Vector3(-5, 0, 100)]:
 		var skeleton := _make_skeleton(offset)
 		_add_chain(skeleton, TIP, goal)
 		skeleton.force_update_all_bone_transforms()
 		# The effector is a child of the modifier, which is a child of the
-		# skeleton, so its world position moves with the skeleton. A world-space
-		# solver that forgot to_local would still get this case right, so also
-		# check the bone's world position tracks the skeleton.
+		# skeleton, so its world position moves with the skeleton.
 		var modifier := skeleton.get_child(0) as FabrikModifier3D
 		modifier.solve_now()
 		skeleton.force_update_all_bone_transforms()
-		var local := skeleton.to_local(skeleton.get_bone_global_pose(TIP).origin)
-		poses.append(Transform3D(Basis(), local))
-		if skeleton.get_bone_global_pose(TIP).origin.distance_to(offset + goal) > 0.02:
-			_fail("at offset " + str(offset) + " the leaf world position is " + str(skeleton.get_bone_global_pose(TIP).origin) + ", expected " + str(offset + goal))
+		var local := skeleton.get_bone_global_pose(TIP).origin
+		locals.append(local)
+		var world := skeleton.to_global(local)
+		if world.distance_to(offset + goal) > 0.02:
+			_fail("at offset " + str(offset) + " the leaf world position is " + str(world)
+				+ ", expected " + str(offset + goal))
 		skeleton.queue_free()
-	for i in range(1, poses.size()):
-		if not poses[i].origin.is_equal_approx(poses[0].origin):
-			_fail("skeleton offset changed the solved pose: " + str(poses[0].origin) + " vs " + str(poses[i].origin))
+	for i in range(1, locals.size()):
+		if not locals[i].is_equal_approx(locals[0]):
+			_fail("skeleton offset changed the solved pose: " + str(locals[0])
+				+ " vs " + str(locals[i]))
 	if failures == 0:
-		print("PASS solved pose is identical for skeletons at three different transforms")
+		print("PASS solved pose is skeleton-local and identical at three skeleton transforms")
 
 func _segment_lengths_survive() -> void:
 	var skeleton := _make_skeleton()

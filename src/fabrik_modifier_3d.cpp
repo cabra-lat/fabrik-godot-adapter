@@ -100,29 +100,32 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
         return -1; // A single bone cannot bend; the core would report it as such.
     }
 
-    // Snapshot the chain as the solver should see it: current global poses,
-    // which is also where each segment's length is measured from. Measuring
-    // from the pose rather than the rest means a skeleton already deformed by
-    // another modifier keeps its own proportions.
+    // r_bones is leaf-first (the effector's bone first, then its parents), but
+    // the core's convention is joints[0] = root and joints[count-1] = tip.
+    // Feeding it leaf-first silently solves the wrong problem: the core anchors
+    // joints[0], so the TIP would be pinned and the root dragged onto the
+    // target, and the reach test measures from the wrong end - which is exactly
+    // how this was found, as a straight chain reported UNREACHABLE.
     PackedVector3Array joints;
     PackedFloat32Array lengths;
     joints.resize(count);
     for (int32_t i = 0; i < count; ++i) {
-        snapshot_global[r_bones[i]] = p_skeleton->get_bone_global_pose(r_bones[i]);
-        joints[i] = snapshot_global[r_bones[i]].origin;
+        const int32_t bone = r_bones[count - 1 - i];
+        snapshot_global[bone] = p_skeleton->get_bone_global_pose(bone);
+        joints[i] = snapshot_global[bone].origin;
     }
     for (int32_t i = 0; i < count - 1; ++i) {
         lengths.append(joints[i].distance_to(joints[i + 1]));
     }
 
-    // Influence blends the goal towards where the leaf is now, so a ramp from 0
+    // Influence blends the goal towards where the tip is now, so a ramp from 0
     // eases the solve in and a ramp to 0 lets the skeleton fall back to
     // whatever the rest of the pipeline produced.
     const float influence = get_influence() * p_effector->get_influence();
     Vector3 goal = p_skeleton->to_local(p_effector->get_global_position());
-    const Vector3 current_leaf = joints[0];
+    const Vector3 current_tip = joints[count - 1];
     if (influence < 1.0f) {
-        goal = current_leaf.lerp(goal, influence);
+        goal = current_tip.lerp(goal, influence);
     }
 
     Ref<FabrikChain3D> chain;
@@ -142,17 +145,24 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
     const int32_t status = chain->get_last_status();
     r_residual = chain->get_last_residual();
 
+    // Fill the working set. Nothing is written to the skeleton here: a bone's
+    // pose is relative to its parent's, so writing before every parent is known
+    // lands each bone relative to a transform that is about to change.
     for (int32_t i = 0; i < count; ++i) {
-        const int32_t bone = r_bones[i];
+        const int32_t bone = r_bones[i];             // leaf-first
+        const int32_t solved_index = count - 1 - i;  // solved is root-first
         const Transform3D before = snapshot_global[bone];
-        Transform3D after(before.basis, solved[i]);
-        if (i + 1 < count) {
+        Transform3D after(before.basis, solved[solved_index]);
+        // The bone's child in the chain is one step towards the leaf, i.e. the
+        // previous entry in the leaf-first list.
+        const int32_t child = i > 0 ? r_bones[i - 1] : -1;
+        if (child >= 0) {
             // Rotate the bone by the smallest turn that carries its current
             // direction onto the solved one. Rotating the existing basis (rather
             // than building one from +Y) keeps the bone's own axes and its twist,
             // and needs no assumption about how the bone was authored.
-            const Vector3 current_dir = before.origin.direction_to(snapshot_global[r_bones[i + 1]].origin);
-            const Vector3 solved_dir = solved[i].direction_to(solved[i + 1]);
+            const Vector3 current_dir = before.origin.direction_to(snapshot_global[child].origin);
+            const Vector3 solved_dir = solved[solved_index].direction_to(solved[solved_index - 1]);
             if (current_dir.length() > kMinDirection && solved_dir.length() > kMinDirection) {
                 after.basis = Basis(Quaternion(current_dir, solved_dir)) * before.basis;
             }
@@ -160,40 +170,51 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
         // The leaf is r_bones[0] - the effector bone itself - not the last entry.
         // These modes are about the bone the effector drives, which is the one
         // GodotIK means by "the leaf".
-        const bool is_leaf = i == 0;
-        switch (p_effector->get_transform_mode()) {
-            case FabrikEffector::PRESERVE_ROTATION: {
-                // Explicitly refuse any rotation change on the leaf. Same shape
-                // as GodotIK's PRESERVE_ROTATION.
-                if (is_leaf) {
+        if (i == 0) {
+            switch (p_effector->get_transform_mode()) {
+                case FabrikEffector::PRESERVE_ROTATION: {
+                    // Explicitly refuse any rotation change on the leaf. Same
+                    // shape as GodotIK's PRESERVE_ROTATION.
                     after.basis = before.basis;
-                }
-            } break;
-            case FabrikEffector::FULL_TRANSFORM: {
-                if (is_leaf) {
+                } break;
+                case FabrikEffector::FULL_TRANSFORM: {
                     after.basis = (p_skeleton->get_global_transform().affine_inverse() * p_effector->get_global_transform()).basis;
-                }
-            } break;
-            default:
-                break;
+                } break;
+                default:
+                    break;
+            }
         }
-        _write_pose(bone, after, p_skeleton);
-    }
-
-    // STRAIGHTEN_CHAIN is a pose-level edit: drop the leaf's own rotation, so
-    // the chain's last segment continues the parent bone's direction. It has to
-    // happen after the leaf has been written, because it replaces the pose.
-    if (p_effector->get_transform_mode() == FabrikEffector::STRAIGHTEN_CHAIN) {
-        const int32_t leaf = r_bones[0];
-        Transform3D local = p_skeleton->get_bone_pose(leaf);
-        local.basis = Basis().scaled(local.basis.get_scale());
-        p_skeleton->set_bone_pose(leaf, local);
-        // Keep the working set consistent: local is parent-relative, so undo the
-        // conversion rather than storing a pose-space origin as if it were global.
-        const int32_t leaf_parent = p_skeleton->get_bone_parent(leaf);
-        new_global[leaf] = leaf_parent >= 0 ? _current_global(leaf_parent, p_skeleton) * local : local;
+        new_global[bone] = after;
+        touched[bone] = true;
     }
     return status;
+}
+
+void FabrikModifier3D::_write_chain(const PackedInt32Array &r_bones, FabrikEffector::TransformMode p_mode, Skeleton3D *p_skeleton) {
+    const int32_t count = r_bones.size();
+    // Root first: a bone's pose is its global transform relative to its parent's,
+    // and `_write_pose` reads the parent's *new* transform, so the parent has to
+    // be in place first. Measured: writing leaf-first leaves every bone off by
+    // the parent's own delta.
+    for (int32_t i = count - 1; i >= 0; --i) {
+        const int32_t bone = r_bones[i];
+        if (i == 0 && p_mode == FabrikEffector::STRAIGHTEN_CHAIN) {
+            // No rotation of its own in the pose, so the chain's last segment
+            // continues the parent bone's direction. Written here rather than at
+            // solve time because it replaces the pose, and the pose is only
+            // correct once the parent is final.
+            const int32_t parent = p_skeleton->get_bone_parent(bone);
+            if (parent >= 0) {
+                const Transform3D parent_global = _current_global(parent, p_skeleton);
+                Transform3D local = parent_global.affine_inverse() * new_global[bone];
+                local.basis = Basis().scaled(local.basis.get_scale());
+                p_skeleton->set_bone_pose(bone, local);
+                new_global[bone] = parent_global * local;
+                return;
+            }
+        }
+        _write_pose(bone, new_global[bone], p_skeleton);
+    }
 }
 
 int32_t FabrikModifier3D::solve_now() {
@@ -213,6 +234,8 @@ int32_t FabrikModifier3D::solve_now() {
     }
 
     const TypedArray<FabrikEffector> effectors = _collect_effectors();
+    std::vector<PackedInt32Array> pending_bones;
+    std::vector<FabrikEffector::TransformMode> pending_modes;
     for (int32_t i = 0; i < effectors.size(); ++i) {
         // TypedArray's operator[] hands back a Variant, and a bare Variant to
         // pointer conversion is ambiguous - the cast is not optional.
@@ -238,13 +261,22 @@ int32_t FabrikModifier3D::solve_now() {
         const int32_t status = _solve_chain(effector, skeleton, bones, residual);
         last_chain_count += 1;
         last_statuses.append(status);
+        pending_bones.push_back(bones);
+        pending_modes.push_back(effector->get_transform_mode());
         if (residual > last_max_residual) {
             last_max_residual = residual;
         }
     }
 
+    // Every chain is solved before anything is written, so a bone whose parent
+    // belongs to another chain reads that chain's NEW transform rather than a
+    // stale one.
+    for (int32_t i = 0; i < int32_t(pending_bones.size()); ++i) {
+        _write_chain(pending_bones[i], pending_modes[i], skeleton);
+    }
+
     // A moving effector has to reach the mesh this frame, not next frame's.
-    skeleton->force_update_bone_child_transform(0);
+    skeleton->force_update_all_bone_transforms();
     return last_chain_count;
 }
 
