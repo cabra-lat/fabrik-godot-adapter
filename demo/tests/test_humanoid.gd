@@ -159,12 +159,25 @@ func _anchored_roots_never_drift(demo: Node) -> void:
 	for entry in chains:
 		var chain: FabrikChain3D = entry.chain
 		var declared_root: Vector3 = entry.root
+		var reported := false
 		for i in 90:
 			demo.call("_process", 1.0 / 24.0)
 			var drift: float = chain.joints[0].distance_to(declared_root)
 			if drift > worst:
 				worst = drift
 				worst_label = entry.label
+			# Trace the first frame that breaks the invariant, so a failure says
+			# when and why rather than only how far.
+			if drift > 1.0e-4 and not reported:
+				reported = true
+				print("    first drift on ", entry.label, " at frame ", i,
+					": drift=", drift,
+					" anchored=", chain.root_anchored,
+					" status=", chain.get_last_status_name(),
+					" root=", chain.joints[0],
+					" declared=", declared_root,
+					" target=", chain.target,
+					" smoothing=", chain.smoothing)
 	if worst > 1.0e-4:
 		_fail("anchored root drifted on " + worst_label + ": " + str(worst) + " m")
 		return
