@@ -350,6 +350,13 @@ jobs:
             # registers .gdextension files, so the class would silently be
             # missing. Timeouts so a hang can never pass as success.
             run_guarded "$godot_bin" --headless --path demo --import 2>&1 | tail -5
+            # Report the environment and prove the extension actually loaded
+            # before running the suites. A GDExtension that is not selected is
+            # not an error at load time, so the suites would fail at GDScript
+            # parse time naming the test script, which points nowhere near the
+            # descriptor. This fails at the real cause instead.
+            run_guarded "$godot_bin" --headless --path demo \
+              --script res://tests/report_environment.gd 2>&1 | tee "$RUNNER_TEMP/env_${version}.log"
             run_guarded "$godot_bin" --headless --path demo \
               --script res://tests/test_godot_scene.gd 2>&1 | tee "$RUNNER_TEMP/scene_${version}.log"
             echo "== modifier (scene-tree layer) assertions"
