@@ -126,7 +126,7 @@ jobs:
           fi
       - name: Restore godot-cpp build cache
         id: ccache-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .ccache
           key: ccache-${{ matrix.id }}-${{ env.GODOT_CPP_REF }}
@@ -310,7 +310,7 @@ jobs:
           if-no-files-found: error
       - name: Save godot-cpp build cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .ccache
           key: ccache-${{ matrix.id }}-${{ env.GODOT_CPP_REF }}
