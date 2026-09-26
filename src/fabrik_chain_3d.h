@@ -29,11 +29,17 @@ class FabrikChain3D : public RefCounted {
     // 0 = use the raw solve, 1 = never move. Applied per solve so a moving
     // target does not make the chain snap between poses every frame.
     float smoothing = 0.0f;
-    // Optional per-joint angle limits, in DEGREES, given as the INTERIOR angle
-    // between the incoming and the outgoing segment at a joint: 180 is straight,
-    // 0 is folded back on itself, so an elbow that may not hyperextend reads as
-    // (0, 150). The array is indexed by joint; joints without an entry, and
-    // joints whose entry is exactly (0, 180), are unlimited.
+    // Optional per-joint angle limits, in DEGREES, given as the FLEXION angle
+    // between the incoming and the outgoing segment at a joint: 0 is straight,
+    // 180 is folded back on itself, so an elbow that may flex 0-150 degrees
+    // reads as (0, 150). The array is indexed by joint; joints without an entry,
+    // and joints whose entry is exactly (0, 180), are unlimited.
+    //
+    // The prose here used to claim the opposite ("180 is straight, 0 is
+    // folded") and was simply wrong: the implementation has always measured
+    // acos(incoming . outgoing), which is 0 for a straight chain. Porting this
+    // arithmetic to Fortran is what caught it, because the ported test asserted
+    // the documented convention and failed against the real one.
     PackedVector2Array joint_limits;
     // A limit is enforced by rotating the sub-chain below the joint, which can
     // introduce a violation at the next joint. A few passes settle the common
@@ -103,11 +109,6 @@ protected:
 private:
     void _update_rotations() const;
     // Interior angle at a joint, in degrees; 0 at the two ends.
-    float _interior_angle_degrees(int32_t p_index) const;
-    Vector3 _perpendicular_to(const Vector3 &p_direction) const;
-    void _apply_pole_constraint();
-    void _apply_joint_limits();
-    void _recompute_residual();
 };
 
 } // namespace godot

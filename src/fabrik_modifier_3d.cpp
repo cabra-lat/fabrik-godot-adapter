@@ -1,5 +1,7 @@
 #include "fabrik_modifier_3d.h"
 
+
+#include "fabrik_core.h"
 #include <godot_cpp/classes/skeleton3d.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
@@ -143,7 +145,16 @@ int32_t FabrikModifier3D::_solve_chain(const FabrikEffector *p_effector, Skeleto
     Vector3 goal = p_skeleton->to_local(p_effector->get_global_position());
     const Vector3 current_tip = joints[count - 1];
     if (influence < 1.0f) {
-        goal = current_tip.lerp(goal, influence);
+        // GodotIK's influence is a lerp of the leaf's CURRENT position towards
+        // the effector, measured against the pose each frame rather than a
+        // remembered one. The arithmetic is the core's now, matched exactly
+        // rather than approximately.
+        const float current_data[3] = {current_tip.x, current_tip.y, current_tip.z};
+        const float goal_data[3] = {goal.x, goal.y, goal.z};
+        float blended[3] = {0.0f, 0.0f, 0.0f};
+        if (fabrik_blend_influence_f32(current_data, goal_data, influence, blended) == FABRIK_OK) {
+            goal = Vector3(blended[0], blended[1], blended[2]);
+        }
     }
 
     Ref<FabrikChain3D> chain;

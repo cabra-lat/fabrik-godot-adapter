@@ -2,13 +2,68 @@
 
 #include "fabrik_core.h"
 #include <godot_cpp/core/class_db.hpp>
-#include <godot_cpp/core/math.hpp>
 #include <godot_cpp/variant/basis.hpp>
 
-#include <cmath>
 #include <vector>
 
 using namespace godot;
+
+// Flat buffer helpers. The core's ABI is flat row-major float arrays, and these
+// are the only place the adapter converts between Godot's packed arrays and
+// that layout. Everything past this point is the core's arithmetic, not ours.
+static void joints_to_flat(const PackedVector3Array &p_joints, std::vector<float> &r_flat) {
+    const int32_t count = p_joints.size();
+    r_flat.resize(static_cast<size_t>(count) * 3U);
+    for (int32_t i = 0; i < count; ++i) {
+        const Vector3 point = p_joints[i];
+        r_flat[static_cast<size_t>(i) * 3U] = point.x;
+        r_flat[static_cast<size_t>(i) * 3U + 1U] = point.y;
+        r_flat[static_cast<size_t>(i) * 3U + 2U] = point.z;
+    }
+}
+
+static void flat_to_joints(const std::vector<float> &p_flat, int32_t p_count, PackedVector3Array &r_joints) {
+    for (int32_t i = 0; i < p_count; ++i) {
+        const Vector3 solved(
+            p_flat[static_cast<size_t>(i) * 3U],
+            p_flat[static_cast<size_t>(i) * 3U + 1U],
+            p_flat[static_cast<size_t>(i) * 3U + 2U]);
+        r_joints.set(i, solved);
+    }
+}
+
+// Quaternions cross as 4 floats per joint in (w, x, y, z), which is Godot's own
+// component order, so this is a copy rather than a conversion. Keeping it a copy
+// is deliberate: a reinterpret_cast between Vector3 and float arrays is exactly
+// the kind of shortcut that survives review and breaks on a different compiler.
+static void quats_to_flat(const TypedArray<Quaternion> &p_quats, std::vector<float> &r_flat) {
+    const int32_t count = p_quats.size();
+    r_flat.resize(static_cast<size_t>(count) * 4U);
+    for (int32_t i = 0; i < count; ++i) {
+        const Quaternion q = p_quats[i];
+        r_flat[static_cast<size_t>(i) * 4U] = q.w;
+        r_flat[static_cast<size_t>(i) * 4U + 1U] = q.x;
+        r_flat[static_cast<size_t>(i) * 4U + 2U] = q.y;
+        r_flat[static_cast<size_t>(i) * 4U + 3U] = q.z;
+    }
+}
+
+static void flat_to_quats(const std::vector<float> &p_flat, int32_t p_count, TypedArray<Quaternion> &r_quats) {
+    r_quats.resize(p_count);
+    for (int32_t i = 0; i < p_count; ++i) {
+        // The core's layout is (w, x, y, z) and godot-cpp's positional
+        // constructor is (x, y, z, w) - NOT w first, which is what the engine
+        // docs and Basis::get_rotation_quaternion() suggest. Passing them in the
+        // same order silently produces the wrong rotation rather than an error,
+        // so the swap is deliberate and commented.
+        const Quaternion q(
+            p_flat[static_cast<size_t>(i) * 4U + 1U],
+            p_flat[static_cast<size_t>(i) * 4U + 2U],
+            p_flat[static_cast<size_t>(i) * 4U + 3U],
+            p_flat[static_cast<size_t>(i) * 4U]);
+        r_quats.set(i, q);
+    }
+}
 
 void FabrikChain3D::set_joints(const PackedVector3Array &p_joints) {
     joints = p_joints;
@@ -88,23 +143,11 @@ int32_t FabrikChain3D::solve() {
     // reference to the same underlying array (_ref), not a deep copy, so
     // snapshotting into one and then writing last_rotations would overwrite the
     // snapshot too, and the slerp would compare each rotation with itself.
-    std::vector<Quaternion> previous_rotations;
-    previous_rotations.reserve(static_cast<size_t>(count));
-    for (int32_t i = 0; i < last_rotations.size(); ++i) {
-        // TypedArray::operator[] hands back a Variant, so read it into a typed
-        // local before calling members on it.
-        const Quaternion previous_rotation = last_rotations[i];
-        previous_rotations.push_back(previous_rotation);
-    }
+    std::vector<float> previous_quaternions;
+    quats_to_flat(last_rotations, previous_quaternions);
 
     std::vector<float> coordinates;
-    coordinates.resize(static_cast<size_t>(count) * 3U);
-    for (int32_t i = 0; i < count; ++i) {
-        const Vector3 point = joints[i];
-        coordinates[static_cast<size_t>(i) * 3U] = point.x;
-        coordinates[static_cast<size_t>(i) * 3U + 1U] = point.y;
-        coordinates[static_cast<size_t>(i) * 3U + 2U] = point.z;
-    }
+    joints_to_flat(joints, coordinates);
 
     std::vector<float> length_values;
     const float *length_data = nullptr;
@@ -120,72 +163,69 @@ int32_t FabrikChain3D::solve() {
         coordinates.data(), count, length_data, target_data,
         root_anchored ? 1 : 0, tolerance, max_iterations,
         coordinates.data(), &last_residual);
-    for (int32_t i = 0; i < count; ++i) {
-        const Vector3 solved(
-            coordinates[static_cast<size_t>(i) * 3U],
-            coordinates[static_cast<size_t>(i) * 3U + 1U],
-            coordinates[static_cast<size_t>(i) * 3U + 2U]);
-        joints.set(i, solved);
-    }
-    // The core is a position solver: it fixes the chain's reach and lengths but
-    // leaves the bend plane free. Apply the optional pole hint before deriving
-    // orientations, so both the raw solve and smoothing see the corrected pose.
-    if (last_status != FABRIK_INVALID_ARGUMENT && last_status != FABRIK_DEGENERATE_CHAIN) {
-        _apply_pole_constraint();
-    }
-    // Angle limits run after the pole hint. A pole target is a rigid rotation
-    // about the root-to-tip axis, so it cannot change any interior angle; the two
-    // constraints therefore do not fight, and running limits last means the
-    // reported residual belongs to the pose that was actually kept.
-    if (last_status != FABRIK_INVALID_ARGUMENT && last_status != FABRIK_DEGENERATE_CHAIN) {
-        _apply_joint_limits();
-        // The core measured the residual of the raw solve, before the pole and
-        // limit projections moved joints. Re-measure it, or a limited chain
-        // would report "solved" while visibly missing its target.
-        _recompute_residual();
-    }
-    _update_rotations();
+    flat_to_joints(coordinates, count, joints);
+    const bool solved = last_status != FABRIK_INVALID_ARGUMENT && last_status != FABRIK_DEGENERATE_CHAIN;
 
-    // Smoothing happens in ROTATION space, never in position space.
-    //
-    // Interpolating joint positions towards the solved ones looks right for one
-    // frame and is wrong in a way that matters: it changes every segment length,
-    // so the rig's bones stretch and the visual skeleton stops matching the
-    // declared one. The humanoid demo caught exactly this - a 0.30 m upper arm
-    // rendered as 0.264 m while the chain eased. Slerping the orientations and
-    // rebuilding the positions by forward kinematics with the declared lengths
-    // cannot stretch a bone, and it converges to the same pose as the raw solve
-    // because slerp(previous, raw, 1.0) IS the raw rotation.
-    if (smoothing > 0.0f && previous_rotations.size() == static_cast<size_t>(count) && count >= 2) {
-        const float t = 1.0f - smoothing;
-        for (int32_t i = 0; i < count; ++i) {
-            const Quaternion target_rotation = last_rotations[i];
-            const Quaternion eased = previous_rotations[static_cast<size_t>(i)].slerp(target_rotation, t);
-            last_rotations.set(i, eased);
-        }
-        // Forward kinematics from the current root: the root never moves here,
-        // so a free-root solve eases its body rather than its anchor.
-        PackedFloat32Array lengths = segment_lengths;
-        if (lengths.size() != count - 1) {
-            // No explicit lengths: take them from the raw solve, which is what
-            // the core would have used.
-            lengths.resize(count - 1);
-            for (int32_t i = 0; i < count - 1; ++i) {
-                lengths.set(i, joints[i].distance_to(joints[i + 1]));
+    // The core is a position solver: it fixes the chain's reach and lengths but
+    // leaves the bend plane free. The optional pole hint, the angle limits, the
+    // rotations and the smoothing all live in the core now, so this method is
+    // orchestration only - it decides the ORDER and owns nothing else. The order
+    // is the core's documented one, and 2 and 3 cannot fight: a pole target is a
+    // rigid rotation about the root-to-tip axis and so changes no interior angle,
+    // which is why running the limits afterwards is safe and means the reported
+    // residual belongs to the pose that was actually kept.
+    if (solved) {
+        const float pole_data[3] = {pole_target.x, pole_target.y, pole_target.z};
+        fabrik_apply_pole_f32(coordinates.data(), count, pole_data, coordinates.data());
+
+        if (!joint_limits.is_empty()) {
+            const int32_t limit_count = joint_limits.size();
+            std::vector<float> limit_values(static_cast<size_t>(limit_count) * 2U);
+            for (int32_t i = 0; i < limit_count; ++i) {
+                const Vector2 limit = joint_limits[i];
+                limit_values[static_cast<size_t>(i) * 2U] = limit.x;
+                limit_values[static_cast<size_t>(i) * 2U + 1U] = limit.y;
             }
+            fabrik_apply_joint_limits_f32(coordinates.data(), count, limit_values.data(),
+                limit_count, limit_iterations, coordinates.data(),
+                &last_limit_projections, &last_limit_violations);
+        } else {
+            last_limit_projections = 0;
+            last_limit_violations = 0;
         }
-        for (int32_t i = 0; i < count - 1; ++i) {
-            const float length = lengths[i];
-            if (length <= CMP_EPSILON) {
-                continue;
-            }
-            // The bone convention is local +Y, the same one pose_skeleton uses.
-            const Quaternion rotation = last_rotations[i];
-            const Vector3 direction = rotation.xform(Vector3(0, 1, 0));
-            joints.set(i + 1, joints[i] + direction * length);
-        }
-        _update_rotations();
+        flat_to_joints(coordinates, count, joints);
+
+        // The core measured the residual of the raw solve, before the pole and
+        // limit projections moved joints. Re-measure it, or a limited chain would
+        // report "solved" while visibly missing its target.
+        fabrik_residual_f32(coordinates.data(), count, target_data, &last_residual);
     }
+
+    // Rotations, and then smoothing, which is a rotation-space operation: see
+    // fabrik_smooth_rotations_f32 for why interpolating positions would stretch
+    // bones.
+    std::vector<float> raw_quaternions;
+    raw_quaternions.resize(static_cast<size_t>(count) * 4U);
+    if (solved) {
+        fabrik_derive_rotations_f32(coordinates.data(), count, raw_quaternions.data());
+    }
+    if (smoothing > 0.0f && previous_quaternions.size() == static_cast<size_t>(count) * 4U && count >= 2) {
+        std::vector<float> eased_quaternions(static_cast<size_t>(count) * 4U);
+        if (length_data == nullptr) {
+            // No declared lengths: take them from the raw solve, which is what
+            // the core itself would have used. The buffer must be sized first -
+            // writing into an empty vector's data() is undefined behaviour, and
+            // it would only show up as a sanitizer report on someone else's run.
+            length_values.assign(static_cast<size_t>(count - 1), 0.0f);
+            fabrik_measure_lengths_f32(coordinates.data(), count, length_values.data());
+        }
+        fabrik_smooth_rotations_f32(coordinates.data(), count, length_values.data(),
+            previous_quaternions.data(), raw_quaternions.data(), smoothing,
+            coordinates.data(), eased_quaternions.data());
+        raw_quaternions.swap(eased_quaternions);
+        flat_to_joints(coordinates, count, joints);
+    }
+    flat_to_quats(raw_quaternions, count, last_rotations);
     if (last_status == FABRIK_OK) {
         emit_signal("solve_finished", last_status, last_residual);
     }
@@ -216,10 +256,16 @@ PackedFloat32Array FabrikChain3D::get_joint_angles() const {
     const int32_t count = joints.size();
     PackedFloat32Array angles;
     angles.resize(count);
-    // The ends have no interior angle, so they report 0 rather than a
-    // meaningless 180 that a caller would have to special-case.
-    for (int32_t i = 0; i < count; ++i) {
-        angles.set(i, _interior_angle_degrees(i));
+    // The ends have no flexion angle, so they report 0 rather than a meaningless
+    // 180 that a caller would have to special-case. The angle itself is the
+    // core's, and it is a FLEXION angle: 0 is straight, 180 is folded back.
+    std::vector<float> flat_joints;
+    joints_to_flat(joints, flat_joints);
+    std::vector<float> flat_angles(static_cast<size_t>(count), 0.0f);
+    if (count >= 2 && fabrik_joint_angles_f32(flat_joints.data(), count, flat_angles.data()) == FABRIK_OK) {
+        for (int32_t i = 0; i < count; ++i) {
+            angles.set(i, flat_angles[static_cast<size_t>(i)]);
+        }
     }
     return angles;
 }
@@ -232,239 +278,24 @@ int32_t FabrikChain3D::get_limit_violation_count() const {
     return last_limit_violations;
 }
 
-float FabrikChain3D::_interior_angle_degrees(int32_t p_index) const {
-    const int32_t count = joints.size();
-    if (p_index < 1 || p_index > count - 2) {
-        return 0.0f;
-    }
-    const Vector3 incoming = (joints[p_index] - joints[p_index - 1]);
-    const Vector3 outgoing = (joints[p_index + 1] - joints[p_index]);
-    if (incoming.length_squared() <= CMP_EPSILON || outgoing.length_squared() <= CMP_EPSILON) {
-        return 0.0f;
-    }
-    const float cosine = CLAMP(incoming.normalized().dot(outgoing.normalized()), -1.0f, 1.0f);
-    return Math::rad_to_deg(Math::acos(cosine));
-}
-
-Vector3 FabrikChain3D::_perpendicular_to(const Vector3 &p_direction) const {
-    // Cross with the least aligned basis axis: the result is then as long as
-    // possible, and it is a pure function of the direction, so two runs of the
-    // same input bend the same way.
-    const Vector3 basis = (Math::abs(p_direction.x) <= Math::abs(p_direction.y) &&
-                                  Math::abs(p_direction.x) <= Math::abs(p_direction.z))
-            ? Vector3(1, 0, 0)
-            : (Math::abs(p_direction.y) <= Math::abs(p_direction.z) ? Vector3(0, 1, 0) : Vector3(0, 0, 1));
-    Vector3 result = basis.cross(p_direction);
-    const float length = result.length();
-    if (length <= CMP_EPSILON) {
-        return Vector3(0, 0, 1);
-    }
-    return result / length;
-}
-
-void FabrikChain3D::_apply_joint_limits() {
-    last_limit_projections = 0;
-    last_limit_violations = 0;
-    const int32_t count = joints.size();
-    if (joint_limits.is_empty() || count < 3) {
-        return;
-    }
-    const int32_t passes = MAX(1, limit_iterations);
-    for (int32_t pass = 0; pass < passes; ++pass) {
-        bool projected = false;
-        for (int32_t i = 1; i < count - 1; ++i) {
-            // A shorter limit array leaves the remaining joints unlimited.
-            if (i >= joint_limits.size()) {
-                break;
-            }
-            const Vector2 limit = joint_limits[i];
-            if (limit.x >= limit.y) {
-                continue;
-            }
-            const float minimum = CLAMP(limit.x, 0.0f, 180.0f);
-            const float maximum = CLAMP(limit.y, 0.0f, 180.0f);
-            const float theta = _interior_angle_degrees(i);
-            const float clamped = CLAMP(theta, minimum, maximum);
-            if (Math::abs(clamped - theta) <= 0.01f) {
-                continue;
-            }
-            const Vector3 pivot = joints[i];
-            const Vector3 incoming = (pivot - joints[i - 1]);
-            const Vector3 outgoing = (joints[i + 1] - pivot);
-            if (incoming.length_squared() <= CMP_EPSILON || outgoing.length_squared() <= CMP_EPSILON) {
-                continue;
-            }
-            const Vector3 in_dir = incoming.normalized();
-            const Vector3 out_dir = outgoing.normalized();
-
-            // The side of the chain the bend currently lies on decides which way
-            // the corrected chain folds. A perfectly straight or perfectly folded
-            // joint has no such side, so pick a stable perpendicular instead -
-            // without it, a straight chain could never be given any maximum below
-            // 180 degrees.
-            Vector3 side = out_dir - in_dir * out_dir.dot(in_dir);
-            if (side.length_squared() <= CMP_EPSILON) {
-                side = _perpendicular_to(in_dir);
-            } else {
-                side = side.normalized();
-            }
-            const float radians = Math::deg_to_rad(clamped);
-            const Vector3 desired =
-                (in_dir * Math::cos(radians) + side * Math::sin(radians)).normalized();
-            // Rotating the sub-chain BELOW the joint, rather than the one above,
-            // keeps joints[0]..joints[i] - and therefore an anchored root - exactly
-            // where they were, and keeps every segment length, because the whole
-            // sub-chain moves rigidly. The tip is what gives way.
-            const Quaternion correction(out_dir, desired);
-            for (int32_t j = i + 1; j < count; ++j) {
-                joints.set(j, pivot + correction.xform(joints[j] - pivot));
-            }
-            last_limit_projections += 1;
-            projected = true;
-        }
-        if (!projected) {
-            break;
-        }
-    }
-
-    // Report what the bounded relaxation could not satisfy instead of implying
-    // the limits always hold.
-    for (int32_t i = 1; i < count - 1; ++i) {
-        if (i >= joint_limits.size()) {
-            break;
-        }
-        const Vector2 limit = joint_limits[i];
-        if (limit.x >= limit.y) {
-            continue;
-        }
-        const float theta = _interior_angle_degrees(i);
-        if (theta < CLAMP(limit.x, 0.0f, 180.0f) - 0.01f ||
-                theta > CLAMP(limit.y, 0.0f, 180.0f) + 0.01f) {
-            last_limit_violations += 1;
-        }
-    }
-}
-
-void FabrikChain3D::_recompute_residual() {
-    const int32_t count = joints.size();
-    if (count < 2) {
-        last_residual = 0.0f;
-        return;
-    }
-    last_residual = joints[count - 1].distance_to(target);
-}
-
-void FabrikChain3D::_apply_pole_constraint() {
-    const int32_t count = joints.size();
-    if (count < 3 || pole_target.length_squared() <= CMP_EPSILON) {
-        return;
-    }
-
-    const Vector3 root = joints[0];
-    const Vector3 axis_full = joints[count - 1] - root;
-    const float axis_length_squared = axis_full.length_squared();
-    if (axis_length_squared <= CMP_EPSILON) {
-        return;
-    }
-    const Vector3 axis = axis_full.normalized();
-
-    // Keep only the component of the pole perpendicular to the root-tip axis:
-    // that is the side the bend should face, and it is the only component a
-    // rotation around the chain axis can change.
-    Vector3 desired = pole_target - root;
-    desired -= axis * desired.dot(axis);
-    if (desired.length_squared() <= CMP_EPSILON) {
-        return;
-    }
-    desired = desired.normalized();
-
-    // Pick the intermediate joint furthest from the axis to define the current
-    // bend side. A joint exactly on the axis gives no usable plane and is skipped.
-    Vector3 current;
-    float best_length_squared = CMP_EPSILON;
-    for (int32_t i = 1; i < count - 1; ++i) {
-        Vector3 offset = joints[i] - root;
-        offset -= axis * offset.dot(axis);
-        const float length_squared = offset.length_squared();
-        if (length_squared > best_length_squared) {
-            best_length_squared = length_squared;
-            current = offset;
-        }
-    }
-    if (current.length_squared() <= CMP_EPSILON) {
-        return;
-    }
-    current = current.normalized();
-
-    // Signed angle from the current bend side to the requested pole, around the
-    // root-to-tip axis. std::atan2 keeps the sign instead of choosing the short
-    // unsigned angle, which matters for a pole behind the chain.
-    const float sine = axis.dot(current.cross(desired));
-    const float cosine = current.dot(desired);
-    const float angle = std::atan2(sine, cosine);
-    if (std::abs(angle) <= CMP_EPSILON) {
-        return;
-    }
-
-    const Quaternion turn(axis, angle);
-    for (int32_t i = 1; i < count - 1; ++i) {
-        joints.set(i, root + turn.xform(joints[i] - root));
-    }
-}
 
 void FabrikChain3D::_update_rotations() const {
+    // The parallel-transported frame, the reference-axis seeding and the basis to
+    // quaternion conversion all live in the core now. What is left here is the
+    // conversion between Godot's packed arrays and the core's flat layout, which
+    // is engine interop rather than arithmetic.
     const int32_t count = joints.size();
     last_rotations.resize(count);
     if (count < 2) {
         return;
     }
-
-    // Bone direction: joint i spans towards joint i+1; the last joint keeps the
-    // direction of the final segment.
-    PackedVector3Array directions;
-    directions.resize(count);
-    for (int32_t i = 0; i < count - 1; ++i) {
-        const Vector3 delta = joints[i + 1] - joints[i];
-        directions.set(i, delta.length_squared() > CMP_EPSILON ? delta.normalized() : Vector3(0, 1, 0));
+    std::vector<float> flat_joints;
+    joints_to_flat(joints, flat_joints);
+    std::vector<float> flat_quaternions(static_cast<size_t>(count) * 4U, 0.0f);
+    if (fabrik_derive_rotations_f32(flat_joints.data(), count, flat_quaternions.data()) != FABRIK_OK) {
+        return;
     }
-    directions.set(count - 1, directions[count - 2]);
-
-    // Seed the frame with a reference axis that is not parallel to the first
-    // bone, then parallel transport it so bending never flips a bone.
-    Vector3 reference(0, 1, 0);
-    if (std::abs(directions[0].dot(reference)) > 0.99f) {
-        reference = Vector3(1, 0, 0);
-    }
-    Vector3 side = reference.cross(directions[0]);
-    if (side.length_squared() <= CMP_EPSILON) {
-        side = Vector3(1, 0, 0).cross(directions[0]);
-    }
-    side = side.normalized();
-    Quaternion frame;
-
-    for (int32_t i = 0; i < count; ++i) {
-        const Vector3 up = directions[i];
-        if (i > 0) {
-            // Shortest-arc rotation from the previous bone direction to this
-            // one. godot-cpp 4.4 has Quaternion(from, to) and Quaternion::xform;
-            // there is no Vector3::rotation_difference and no Quaternion*Vector3.
-            const Quaternion step(directions[i - 1], up);
-            frame = step * frame;
-            side = step.xform(side);
-        }
-        // Re-orthogonalise against drift accumulated by the transport.
-        side = (side - up * side.dot(up));
-        if (side.length_squared() <= CMP_EPSILON) {
-            Vector3 fallback(1, 0, 0);
-            if (std::abs(fallback.dot(up)) > 0.99f) {
-                fallback = Vector3(0, 0, 1);
-            }
-            side = fallback.cross(up);
-        }
-        side = side.normalized();
-        const Vector3 forward = side.cross(up).normalized();
-        last_rotations.set(i, Basis(side, up, forward).get_rotation_quaternion());
-    }
+    flat_to_quats(flat_quaternions, count, const_cast<TypedArray<Quaternion> &>(last_rotations));
 }
 
 TypedArray<Quaternion> FabrikChain3D::get_joint_rotations() const {

@@ -164,6 +164,41 @@ hand.pole_target_path = ^"../ElbowPole"   # optional Node3D
 hand.global_position = target_position
 ```
 
+## Where the maths lives
+
+The solver is Fortran. C++ exists only where the engine forces it: ClassDB
+registration, `SkeletonModifier3D`/`Node3D` subclassing, the bone-tree walk,
+skeleton-local and world conversions, `Transform3D` and quaternion
+construction, and `set_bone_pose()`.
+
+Everything else crosses the flat C ABI and is implemented in the core, so it is
+covered by `fortran-fpm test` and the sanitizer rather than only by a GDScript
+test:
+
+| Step | Core entry point |
+| --- | --- |
+| Reaching the target | `fabrik_solve_f32` |
+| Segment lengths | `fabrik_measure_lengths_f32` |
+| Pole / bend-plane projection | `fabrik_apply_pole_f32` |
+| Joint angle limits | `fabrik_apply_joint_limits_f32` |
+| Per-joint flexion angles | `fabrik_joint_angles_f32` |
+| Bone frames and orientations | `fabrik_derive_rotations_f32` |
+| Rotation-space smoothing | `fabrik_smooth_rotations_f32` |
+| Influence blending | `fabrik_blend_influence_f32` |
+| Residual | `fabrik_residual_f32` |
+| Dependency ordering | `fabrik_order_dependencies_f32` |
+
+Two layout details matter at that boundary, and both fail silently rather than
+loudly:
+
+- Quaternions cross as `(w, x, y, z)`, but **godot-cpp's positional
+  `Quaternion` constructor is `(x, y, z, w)`**. Passing them in the same order
+  yields unit quaternions that rotate every bone backwards. `flat_to_quats()` in
+  `fabrik_chain_3d.cpp` swaps deliberately.
+- Bone `+Y` follows its segment, forward from the root. This is asserted
+  positively rather than with `abs(dot)`, because an inverted bone is still a
+  unit quaternion.
+
 - `FabrikModifier3D.iteration_count` defaults to **8**, GodotIK's default rather
   than this adapter's 64, so substituting one for the other does not change the
   pose by changing a default.

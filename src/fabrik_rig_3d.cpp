@@ -1,5 +1,7 @@
 #include "fabrik_rig_3d.h"
 
+
+#include "fabrik_core.h"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/variant.hpp>
@@ -187,8 +189,18 @@ bool FabrikRig3D::_compute_order(std::vector<int32_t> &r_order) const {
         index_of.emplace(chain_id(chain), i);
     }
 
-    std::vector<int32_t> pending(count, 0);
-    std::vector<std::vector<int32_t>> dependents(count);
+    // The ordering is Kahn's algorithm and it lives in the core, so it is
+    // covered by `fpm test` and the sanitizer rather than only by a GDScript
+    // test. What stays here is the Godot-shaped part: turning chain object ids
+    // into integer edges, then handing back an order.
+    //
+    // Three rules are applied while flattening, and all three belong here rather
+    // than in the core because they are about object identity, not graph theory:
+    // a chain cannot depend on itself, a dependency on a chain that has left the
+    // rig is not a constraint on this one, and a repeated edge must not be
+    // counted twice or the child would wait for a parent released only once.
+    std::vector<int32_t> flat_edges;
+    flat_edges.reserve(static_cast<size_t>(count) * 2U);
     for (int32_t i = 0; i < count; ++i) {
         const Ref<FabrikChain3D> chain = chains[i];
         const auto edges = dependencies.find(chain_id(chain));
@@ -198,44 +210,25 @@ bool FabrikRig3D::_compute_order(std::vector<int32_t> &r_order) const {
         std::vector<uint64_t> counted;
         for (uint64_t parent_id : edges->second) {
             const auto parent = index_of.find(parent_id);
-            // A chain cannot depend on itself, and a dependency on a chain that
-            // left the rig is not a constraint on this one.
             if (parent == index_of.end() || parent->second == i) {
                 continue;
             }
-            // A repeated edge must not be counted twice or the child would wait
-            // for a parent that was only ever released once.
             if (std::find(counted.begin(), counted.end(), parent_id) != counted.end()) {
                 continue;
             }
             counted.push_back(parent_id);
-            dependents[parent->second].push_back(i);
-            pending[i] += 1;
+            flat_edges.push_back(i);
+            flat_edges.push_back(parent->second);
         }
     }
+    const int32_t pairs = static_cast<int32_t>(flat_edges.size() / 2U);
 
-    // Kahn's algorithm, always taking the lowest declaration index that is
-    // ready. That is what makes a dependency-free rig solve exactly as declared.
-    std::vector<bool> emitted(count, false);
-    r_order.reserve(static_cast<size_t>(count));
-    for (int32_t step = 0; step < count; ++step) {
-        int32_t pick = -1;
-        for (int32_t i = 0; i < count; ++i) {
-            if (!emitted[i] && pending[i] == 0) {
-                pick = i;
-                break;
-            }
-        }
-        if (pick < 0) {
-            // Everything left is waiting on something else: a cycle.
-            r_order.clear();
-            return false;
-        }
-        emitted[pick] = true;
-        r_order.push_back(pick);
-        for (int32_t dependent : dependents[pick]) {
-            pending[dependent] -= 1;
-        }
+    r_order.assign(static_cast<size_t>(count), -1);
+    if (fabrik_order_dependencies_f32(count, flat_edges.data(), pairs, r_order.data()) != FABRIK_OK) {
+        // A cycle, which the core refuses wholesale rather than returning a
+        // truncated order that would solve half the rig.
+        r_order.clear();
+        return false;
     }
     return true;
 }

@@ -4,6 +4,19 @@ This is a separate GDExtension adapter package. It consumes the standalone
 `fabrik_core` package through its flat C ABI; it is not a production IK
 replacement and is not integrated into the game or shooter addon.
 
+## Where the maths lives
+
+The split is deliberate: the solver's arithmetic is Fortran, so it is
+unit-tested and sanitized on its own, and C++ is only what the engine forces it
+to be.
+
+| Concern | Language |
+| --- | --- |
+| FABRIK iterations, pole, joint limits, bone rotations, smoothing, influence, dependency ordering | Fortran (`fabrik_core`) |
+| ClassDB, `SkeletonModifier3D`, bone-tree walk, space conversion, `set_bone_pose()` | C++ |
+
+`docs/API.md` lists the exact core entry point behind each step.
+
 ## Reproducible source build
 
 The adapter has no vendored binary dependency. Check out the pinned
@@ -171,8 +184,9 @@ transforms solves to the same local pose.
 - Stress measurements on the tested host: anchored root drift is exactly zero
   through 4096-joint chains, segment-length error stays below `2e-5` m at that
   size, and a 100,000-joint solve takes about 44 ms.
-- `joint_limits` adds per-joint angle limits, given as the interior angle in
-  degrees (`180` straight, `0` folded). FABRIK itself has no notion of them: the
+- `joint_limits` adds per-joint angle limits, given as the **flexion** angle in
+  degrees (`0` straight, `180` folded back on itself, so an elbow that may flex
+  0-150 degrees reads as `(0, 150)`). FABRIK itself has no notion of them: the
   adapter projects them after the solve by rotating the sub-chain below the
   joint, which keeps an anchored root fixed and every segment length exact, and
   lets the tip fall short of the target instead.
