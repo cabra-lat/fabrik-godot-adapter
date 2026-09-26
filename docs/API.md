@@ -302,7 +302,7 @@ All four were read in full text, and are cited for what they say:
   budget and tolerance are explicit and its status codes are checked.
 
 The core repository carries the same list, and the wider provenance record:
-<https://github.com/cabra-lat/fabrik-fortran/blob/13253a77b78b515b89d2531dd93aa6934e80b523/docs/ALGORITHM.md>
+<https://github.com/cabra-lat/fabrik-fortran/blob/16b3a7f8074eac5cbbd0eb7a3ad9d749a692369d/docs/ALGORITHM.md>
 (commit pinned by `.github/workflows/ci.yml` as `FABRIK_CORE_REF`).
 
 ## Smoothing

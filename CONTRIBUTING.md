@@ -18,7 +18,7 @@ either. Please do not add game scenes, gameplay code or CI gates here.
   root makes the engine scan `build/`, `core/` and `godot-cpp/`.
 - Attribute the algorithm; never copy it. See the provenance section of the
   core repository's licence review:
-  <https://github.com/cabra-lat/fabrik-fortran/blob/13253a77b78b515b89d2531dd93aa6934e80b523/docs/LICENSE_REVIEW.md>
+  <https://github.com/cabra-lat/fabrik-fortran/blob/16b3a7f8074eac5cbbd0eb7a3ad9d749a692369d/docs/LICENSE_REVIEW.md>
 
 ## Before you open a pull request
 

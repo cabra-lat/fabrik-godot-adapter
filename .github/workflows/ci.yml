@@ -17,6 +17,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       FABRIK_CORE_REPOSITORY: cabra-lat/fabrik-fortran
+      # The checkout step below reads this rather than repeating the sha: two
+      # copies of a ref is exactly how the adapter ends up compiling against a
+      # core that predates the entry points it calls.
       FABRIK_CORE_REF: 16b3a7f8074eac5cbbd0eb7a3ad9d749a692369d
       # godot-cpp 4.4-stable ships no CMake install/export rules, so there is no
       # find_package() target to cache. ccache is the cache that works with the
@@ -31,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: cabra-lat/fabrik-fortran
-          ref: 13253a77b78b515b89d2531dd93aa6934e80b523
+          ref: ${{ env.FABRIK_CORE_REF }}
           path: core
       - uses: fortran-lang/setup-fortran@v1
         with:
