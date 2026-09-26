@@ -208,6 +208,38 @@ jobs:
             linux_plat="linux.x86_64"
           fi
           echo "linux engine asset: $linux_plat (RUNNER_ARCH=${RUNNER_ARCH:-unset})"
+          # The descriptor is hand-maintained, and Godot picks the library by
+          # feature tag rather than by filename. A missing key for the runner's
+          # own os/arch is not a warning: the extension is silently not loaded,
+          # FabrikChain3D is never registered, and every suite then fails at
+          # GDScript parse time with "Identifier FabrikChain3D not declared" -
+          # which points at the test script and not at the descriptor. Check the
+          # exact tag this job needs before launching anything.
+          if [ "${{ matrix.variant }}" = "template_release" ]; then
+            variant_tag="release"
+          else
+            variant_tag="debug"
+          fi
+          case "$RUNNER_OS" in
+            Linux)
+              case "${RUNNER_ARCH:-}" in
+                ARM64) arch_tag="arm64" ;;
+                *) arch_tag="x86_64" ;;
+              esac
+              want_tag="linux.${variant_tag}.${arch_tag}"
+              ;;
+            macOS) want_tag="macos.${variant_tag}" ;;
+            Windows) want_tag="windows.${variant_tag}.x86_64" ;;
+          esac
+          descriptor="demo/bin/fabrik_adapter.gdextension"
+          echo "descriptor tag required here: $want_tag"
+          if ! grep -q "^${want_tag} " "$descriptor"; then
+            echo "FAIL: $descriptor has no '$want_tag' entry, so the extension would"
+            echo "      not load on this runner. Entries it does have:"
+            sed -n '/\[libraries\]/,$p' "$descriptor" >&2
+            exit 1
+          fi
+          echo "descriptor covers this runner"
           # Do not duplicate the build-system's output path here: locate the
           # library wherever CMake put it, and print the truth before failing so
           # a wrong assumption is never mistaken for a missing build.

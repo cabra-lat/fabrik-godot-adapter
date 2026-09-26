@@ -6,6 +6,14 @@ reloadable = false
 [libraries]
 linux.debug.x86_64 = "res://bin/libfabrik_adapter.so"
 linux.release.x86_64 = "res://bin/libfabrik_adapter.so"
+# Godot selects the library by feature tag, not by filename, so an aarch64
+# runner needs its own keys even though the file is named identically. Without
+# them the extension is not merely wrong, it is silently not loaded: the engine
+# finds no matching entry, FabrikChain3D is never registered, and the test
+# scripts fail at GDScript parse time with "Identifier FabrikChain3D not
+# declared" - which says nothing about the real cause.
+linux.debug.arm64 = "res://bin/libfabrik_adapter.so"
+linux.release.arm64 = "res://bin/libfabrik_adapter.so"
 windows.debug.x86_64 = "res://bin/fabrik_adapter.dll"
 windows.release.x86_64 = "res://bin/fabrik_adapter.dll"
 macos.debug = "res://bin/libfabrik_adapter.dylib"
