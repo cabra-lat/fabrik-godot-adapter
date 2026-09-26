@@ -85,7 +85,22 @@ jobs:
           repository: cabra-lat/fabrik-fortran
           ref: ${{ env.FABRIK_CORE_REF }}
           path: core
-      - uses: fortran-lang/setup-fortran@v1
+      - name: Install gfortran from the runner archive (arm64)
+        # setup-fortran resolves `latest` to a concrete major version and then
+        # apt-installs it by name (on this runner, gcc-15/gfortran-15). That
+        # package is published for x86_64 but not for the arm64 archive, so the
+        # action fails on the very first apt call and takes the whole job with
+        # it. Take the archive default instead: the runner's own release always
+        # carries a gfortran built for its own architecture.
+        if: matrix.id == 'linux-arm64-release-gcc'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran
+          gfortran --version
+      - name: Set up a Fortran compiler
+        if: matrix.id != 'linux-arm64-release-gcc'
+        uses: fortran-lang/setup-fortran@v1
         with:
           compiler: gcc
           version: ${{ runner.os == 'macOS' && '12' || 'latest' }}
