@@ -105,14 +105,21 @@ jobs:
           compiler: gcc
           version: ${{ runner.os == 'macOS' && '12' || 'latest' }}
       - uses: fortran-lang/setup-fpm@v10
+        # fpm v0.13.0 publishes linux-x86_64, macos-arm64, macos-x86_64 and
+        # windows-x86_64. There is no linux-arm64 asset, and the release zip is
+        # the source repo with no bootstrap recipe, so the action cannot work on
+        # this runner. The core is built directly instead, one step below.
+        if: matrix.id != 'linux-arm64-release-gcc'
         with:
           fpm-version: "v0.13.0"
       - name: Build and test core
+        if: matrix.id != 'linux-arm64-release-gcc'
         working-directory: core
         run: |
           fpm test --profile release
           fpm build --profile release
       - name: Assemble core install prefix
+        if: matrix.id != 'linux-arm64-release-gcc'
         shell: bash
         run: |
           # `python` is not a guaranteed name on every image (and is a
@@ -121,6 +128,13 @@ jobs:
           command -v python3 >/dev/null 2>&1 || py=python
           command -v "$py" >/dev/null 2>&1 || { echo "no python on $RUNNER_OS"; exit 1; }
           "$py" ci/collect_fpm_prefix.py --build core/build --prefix core-prefix
+      - name: Build and test core without fpm (arm64)
+        # Still runs the core's own test programs, so arm64 exercises the
+        # Fortran maths and the C ABI rather than just the adapter. See
+        # ci/direct-core-build.sh for why a package manager is not used here.
+        if: matrix.id == 'linux-arm64-release-gcc'
+        shell: bash
+        run: bash ci/direct-core-build.sh "$GITHUB_WORKSPACE/core" core-prefix
       - name: Check out pinned godot-cpp
         uses: actions/checkout@v4
         with:
