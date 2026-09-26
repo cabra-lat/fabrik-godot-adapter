@@ -11,10 +11,19 @@
 # being explicit here means a silent regression cannot reach the artifact.
 set -euo pipefail
 
-core_dir="$1"     # the checked-out core repository
-prefix="$2"      # where to assemble include/ and lib/
-here="$(cd "$(dirname "$0")" && pwd)"
-work="$here/obj"
+# Resolve BOTH arguments to absolute paths before any cd. The build runs in its
+# own object directory, so a relative prefix would be resolved from there and
+# `ar` would write to (or look for) core-prefix/lib/libfabrik_core.a under the
+# object dir. Passing an absolute path from the caller hides that until CI,
+# where the workflow naturally passes a workspace-relative one.
+core_dir="$(cd "$1" && pwd)"
+mkdir -p "$2"
+prefix="$(cd "$2" && pwd)"
+# Objects and test binaries go to a scratch directory, not into the repository:
+# ci/obj/ would be untracked build litter that a later `git add -A` could sweep
+# into a commit.
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
 
 rm -rf "$work"
 mkdir -p "$work" "$prefix/include" "$prefix/lib"
