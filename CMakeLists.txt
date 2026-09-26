@@ -35,15 +35,28 @@ if(NOT GODOT_CPP_SOURCE_DIR)
   message(FATAL_ERROR "Set GODOT_CPP_SOURCE_DIR to a godot-cpp source checkout; no opaque binaries are vendored")
 endif()
 
-# godot-cpp's own CMake project supplies generated headers and bindings.
+# godot-cpp's own CMake project supplies generated headers and bindings. It
+# defines ALL of its variants as aliases (template_debug, template_release and
+# editor) and the choice is made by what the adapter LINKS, not by a configure
+# flag - so the variant has to be named explicitly.
+#
+# Falling back silently to debug here would be actively harmful: a
+# template_debug build compiles in DEBUG_METHODS_ENABLED, so it is a different
+# binding surface from the release variant, and a build that quietly got the
+# wrong one would still compile, still link and still pass its tests while never
+# exercising the configuration a shipped game uses. Refuse instead.
 add_subdirectory("${GODOT_CPP_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/godot-cpp" EXCLUDE_FROM_ALL)
-if(TARGET godot-cpp::template_debug)
-  set(FABRIK_GODOT_CPP_TARGET godot-cpp::template_debug)
-elseif(TARGET godot-cpp)
-  set(FABRIK_GODOT_CPP_TARGET godot-cpp)
-else()
-  message(FATAL_ERROR "The selected godot-cpp source tree exposes no supported CMake target")
+set(FABRIK_GODOT_CPP_VARIANT "template_debug" CACHE STRING
+    "godot-cpp build variant to link: template_debug, template_release or editor")
+set_property(CACHE FABRIK_GODOT_CPP_VARIANT PROPERTY STRINGS
+    template_debug template_release editor)
+if(NOT TARGET godot-cpp::${FABRIK_GODOT_CPP_VARIANT})
+  message(FATAL_ERROR
+      "Requested godot-cpp variant '${FABRIK_GODOT_CPP_VARIANT}' is not available "
+      "in ${GODOT_CPP_SOURCE_DIR}. Available: template_debug, template_release, editor")
 endif()
+set(FABRIK_GODOT_CPP_TARGET godot-cpp::${FABRIK_GODOT_CPP_VARIANT})
+message(STATUS "fabrik adapter links godot-cpp variant: ${FABRIK_GODOT_CPP_VARIANT}")
 
 add_library(fabrik_adapter SHARED
   src/register_types.cpp

@@ -44,6 +44,25 @@ The adapter workflow checks out the published
 `.github/workflows/ci.yml`, so the separate core dependency cannot silently
 drift.
 
+### godot-cpp variant
+
+`-DFABRIK_GODOT_CPP_VARIANT` picks which godot-cpp build the adapter links:
+`template_debug` (default), `template_release`, or `editor`. The choice is
+made by what the adapter *links*, not by a configure flag, because godot-cpp
+exposes all three as aliases and builds only what is referenced.
+
+Pick this deliberately rather than by default. `template_debug` compiles in
+`DEBUG_METHODS_ENABLED`, so it is a different binding surface from
+`template_release`; an extension built against the wrong one still compiles,
+still links and still passes its tests. CMake therefore **fails** on an
+unavailable variant instead of falling back:
+
+```sh
+cmake -S . -B build -DFABRIK_GODOT_CPP_VARIANT=template_release ...
+```
+
+CI builds both variants on Linux, macOS and Windows.
+
 ## Runtime dependencies
 
 The extension links the Fortran core, so it inherits the Fortran runtime:

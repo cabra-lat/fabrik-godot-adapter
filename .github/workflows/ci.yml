@@ -12,9 +12,58 @@ jobs:
   build:
     strategy:
       fail-fast: false
+      # Written as an explicit include list rather than os x variant x compiler.
+      # The cross product would be 18 jobs, most of them either impossible
+      # (clang on the Windows image) or redundant (four godot-cpp variants of
+      # the same platform). Every entry below is a combination we actually
+      # want to claim, and nothing is built by accident.
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          # Baseline: the three platforms, both variants.
+          - id: linux-x64-debug-gcc
+            os: ubuntu-latest
+            variant: template_debug
+            cxx: g++
+          - id: linux-x64-release-gcc
+            os: ubuntu-latest
+            variant: template_release
+            cxx: g++
+          - id: macos-debug-gcc
+            os: macos-latest
+            variant: template_debug
+            cxx: g++
+          - id: macos-release-gcc
+            os: macos-latest
+            variant: template_release
+            cxx: g++
+          - id: windows-debug-gcc
+            os: windows-latest
+            variant: template_debug
+            cxx: g++
+          - id: windows-release-gcc
+            os: windows-latest
+            variant: template_release
+            cxx: g++
+          # aarch64. Free on a public repo, and a 64-bit Fortran runtime with a
+          # different alignment and vector story is exactly the thing a
+          # three-x86_64 matrix would never notice.
+          - id: linux-arm64-release-gcc
+            os: ubuntu-24.04-arm
+            variant: template_release
+            cxx: g++
+          # clang beside gcc. Different codegen means an aliasing or
+          # strict-aliasing mistake at the Fortran C ABI boundary surfaces here
+          # and essentially nowhere else.
+          - id: linux-x64-release-clang
+            os: ubuntu-latest
+            variant: template_release
+            cxx: clang++
+          - id: macos-debug-clang
+            os: macos-latest
+            variant: template_debug
+            cxx: clang++
     runs-on: ${{ matrix.os }}
+    name: ${{ matrix.id }}
     env:
       FABRIK_CORE_REPOSITORY: cabra-lat/fabrik-fortran
       # The checkout step below reads this rather than repeating the sha: two
@@ -49,7 +98,14 @@ jobs:
           fpm test --profile release
           fpm build --profile release
       - name: Assemble core install prefix
-        run: python ci/collect_fpm_prefix.py --build core/build --prefix core-prefix
+        shell: bash
+        run: |
+          # `python` is not a guaranteed name on every image (and is a
+          # Windows Store alias on some), so resolve it instead of assuming.
+          py=python3
+          command -v python3 >/dev/null 2>&1 || py=python
+          command -v "$py" >/dev/null 2>&1 || { echo "no python on $RUNNER_OS"; exit 1; }
+          "$py" ci/collect_fpm_prefix.py --build core/build --prefix core-prefix
       - name: Check out pinned godot-cpp
         uses: actions/checkout@v4
         with:
@@ -73,52 +129,56 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .ccache
-          key: ccache-${{ matrix.os }}-Release-${{ env.GODOT_CPP_REF }}
+          key: ccache-${{ matrix.id }}-${{ env.GODOT_CPP_REF }}
       - name: Configure adapter
         shell: bash
         run: >
           cmake -S . -B build -G Ninja
           -DFABRIK_CORE_ROOT=core-prefix
           -DGODOT_CPP_SOURCE_DIR=godot-cpp
+          -DFABRIK_GODOT_CPP_VARIANT=${{ matrix.variant }}
           -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_CXX_COMPILER=g++
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build adapter and C ABI smoke test
         shell: bash
         run: |
-          cmake --build build --parallel 2
+          # Name the targets explicitly. `cmake --build build` with no target
+          # would also build the godot-cpp variants nothing links against.
+          cmake --build build --parallel 2 --target fabrik_adapter fabrik_cxx_smoke
           ctest --test-dir build --output-on-failure
-      - name: Godot runtime check (4.4.1 and 4.7.1)
+      - name: Godot runtime check (4.4.1, 4.5.1, 4.6.1, 4.7.1)
         shell: bash
         run: |
           set -euo pipefail
-          echo "runner: $RUNNER_OS"
+          echo "runner: $RUNNER_OS ${{ matrix.variant }} ${{ matrix.cxx }}"
+          # Library name only. The engine URLs are built in the version loop
+          # from one table, so adding a Godot version costs one line instead of
+          # four per platform, and an architecture change cannot leave an x86_64
+          # asset in place of the arm64 one.
           case "$RUNNER_OS" in
             Linux)
               ext="so"
-          lib="libfabrik_adapter.so"
-              url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip"
-              url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip"
-              bin_441="Godot_v4.4.1-stable_linux.x86_64"
-              bin_471="Godot_v4.7.1-stable_linux.x86_64"
+              lib="libfabrik_adapter.so"
               ;;
             macOS)
               ext="dylib"
-          lib="libfabrik_adapter.dylib"
-              url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_macos.universal.zip"
-              url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_macos.universal.zip"
-              bin_441="Godot.app/Contents/MacOS/Godot"
-              bin_471="Godot.app/Contents/MacOS/Godot"
+              lib="libfabrik_adapter.dylib"
               ;;
             Windows)
               ext="dll"
-          lib="fabrik_adapter.dll"
-              url_441="https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_win64.exe.zip"
-              url_471="https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_win64.exe.zip"
-              bin_441="Godot_v4.4.1-stable_win64.exe"
-              bin_471="Godot_v4.7.1-stable_win64.exe"
+              lib="fabrik_adapter.dll"
               ;;
           esac
+          # An arm64 runner must not be handed the x86_64 engine: it either fails
+          # to execute or, under a permissive loader, produces a green run that
+          # says nothing about the machine it claims to have tested.
+          if [ "$RUNNER_OS" = "Linux" ] && [ "${RUNNER_ARCH:-}" = "ARM64" ]; then
+            linux_plat="linux.arm64"
+          else
+            linux_plat="linux.x86_64"
+          fi
+          echo "linux engine asset: $linux_plat (RUNNER_ARCH=${RUNNER_ARCH:-unset})"
           # Do not duplicate the build-system's output path here: locate the
           # library wherever CMake put it, and print the truth before failing so
           # a wrong assumption is never mistaken for a missing build.
@@ -200,11 +260,22 @@ jobs:
               "$@"
             fi
           }
-          for version in 441 471; do
-            url_var="url_${version}"
-            bin_var="bin_${version}"
-            url="${!url_var}"
-            bin_name="${!bin_var}"
+          for version in 4.4.1 4.5.1 4.6.1 4.7.1; do
+            base="https://github.com/godotengine/godot/releases/download/${version}-stable/Godot_v${version}-stable"
+            case "$RUNNER_OS" in
+              Linux)
+                url="${base}_${linux_plat}.zip"
+                bin_name="Godot_v${version}-stable_${linux_plat}"
+                ;;
+              macOS)
+                url="${base}_macos.universal.zip"
+                bin_name="Godot.app/Contents/MacOS/Godot"
+                ;;
+              Windows)
+                url="${base}_win64.exe.zip"
+                bin_name="Godot_v${version}-stable_win64.exe"
+                ;;
+            esac
             godot_dir="$RUNNER_TEMP/godot_${version}"
             rm -rf "$godot_dir"
             mkdir -p "$godot_dir"
@@ -230,7 +301,9 @@ jobs:
       - name: Upload extension library
         uses: actions/upload-artifact@v4
         with:
-          name: fabrik-adapter-${{ matrix.os }}
+          # v4 rejects a second upload under a name that already exists, and
+          # several jobs now share an OS. The id keeps them distinct.
+          name: fabrik-adapter-${{ matrix.id }}
           # demo/bin/ rather than build/bin/: it is the loadable bundle, with the
           # descriptor and any required runtime DLLs already beside the library.
           path: demo/bin/
@@ -240,7 +313,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .ccache
-          key: ccache-${{ matrix.os }}-Release-${{ env.GODOT_CPP_REF }}
+          key: ccache-${{ matrix.id }}-${{ env.GODOT_CPP_REF }}
       - name: Report ccache statistics
         if: always()
         shell: bash
