@@ -7,6 +7,14 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # Batch patch and minor updates into one PR instead of one PR per action.
+    # Majors stay ungrouped and arrive individually, because a major is the case
+    # that actually needs a human: upload-artifact v5 made artifacts immutable,
+    # and that would not have been obvious from the diff.
+    groups:
+      github-actions-patch-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: gomod
     directory: /
     schedule:
