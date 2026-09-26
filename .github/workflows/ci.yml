@@ -78,9 +78,9 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 2G
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check out standalone core
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: cabra-lat/fabrik-fortran
           ref: ${{ env.FABRIK_CORE_REF }}
@@ -136,7 +136,7 @@ jobs:
         shell: bash
         run: bash ci/direct-core-build.sh "$GITHUB_WORKSPACE/core" core-prefix
       - name: Check out pinned godot-cpp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: godotengine/godot-cpp
           ref: 714c9e2c165db2dcb7e6ea57e62a04204d3cfbfa
@@ -155,7 +155,7 @@ jobs:
           fi
       - name: Restore godot-cpp build cache
         id: ccache-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .ccache
           key: ccache-${{ matrix.id }}-${{ env.GODOT_CPP_REF }}
@@ -328,7 +328,7 @@ jobs:
               --script res://tests/test_humanoid.gd 2>&1 | tee "$RUNNER_TEMP/humanoid_${version}.log"
           done
       - name: Upload extension library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # v4 rejects a second upload under a name that already exists, and
           # several jobs now share an OS. The id keeps them distinct.
@@ -339,7 +339,7 @@ jobs:
           if-no-files-found: error
       - name: Save godot-cpp build cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .ccache
           key: ccache-${{ matrix.id }}-${{ env.GODOT_CPP_REF }}
